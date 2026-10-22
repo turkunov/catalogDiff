@@ -1,0 +1,139 @@
+{
+  "id": null,
+  "uid": "qwen3-vl-overview",
+  "title": "Qwen3-VL Labeling Overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "pool",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": "label_values(vlm_pool_inflight, pool)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Active Pools",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(vlm_pool_inflight{pool=~\"$pool\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Throughput (success pairs/sec, 5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(vlm_pairs_processed_total{status=\"success\",pool=~\"$pool\"}[5m]))"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Error Rate (failed/sec, 5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(vlm_pairs_processed_total{status=\"failed\",pool=~\"$pool\"}[5m]))"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Average Progress (%)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "avg(vlm_pool_progress_percent{pool=~\"$pool\"})"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "values": false }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-Pool Progress (%)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "vlm_pool_progress_percent{pool=~\"$pool\"}",
+          "legendFormat": "{{pool}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-Pool ETA (s)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "vlm_pool_eta_seconds{pool=~\"$pool\"}",
+          "legendFormat": "{{pool}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pair Latency p95 (5m)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(vlm_pair_latency_seconds_bucket{pool=~\"$pool\"}[5m])) by (le, pool))",
+          "legendFormat": "{{pool}} p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-Pool Success vs Failed (5m rate)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (pool) (rate(vlm_pairs_processed_total{status=\"success\",pool=~\"$pool\"}[5m]))",
+          "legendFormat": "{{pool}} success"
+        },
+        {
+          "expr": "sum by (pool) (rate(vlm_pairs_processed_total{status=\"failed\",pool=~\"$pool\"}[5m]))",
+          "legendFormat": "{{pool}} failed"
+        }
+      ]
+    }
+  ]
+}

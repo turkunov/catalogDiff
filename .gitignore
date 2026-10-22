@@ -1,0 +1,10 @@
+*.png
+*.safetensors
+*.csv
+*.log
+*.jsonl
+
+**/__pycache__/
+***/hub/
+*/.ipynb_checkpoints/
+*Trash*
