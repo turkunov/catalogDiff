@@ -53,3 +53,10 @@ def test_validate_duplicate_attribute():
 def test_validate_broken_yaml():
     with pytest.raises(ProfileError):
         parse_profile("name: [unclosed")
+
+
+def test_validate_broken_prompt_override():
+    p = load_profile(PROFILES / "sofas.yaml")
+    p.prompt_overrides["match"] = 'Return {"class": 1}'
+    with pytest.raises(ProfileError, match="prompt_overrides.match"):
+        parse_profile(dump_profile(p))

@@ -50,3 +50,23 @@ def test_start_iteration_runs_in_background(app_ctx, tmp_path):
     rep = app_ctx.store.get_iteration(it)["report"]
     assert rep is not None and rep["threshold_missing"] is False
     assert set(app_ctx.store.iteration_pairs(it).status) == {"done"}
+
+
+def test_resume_uses_planned_profile_version(app_ctx_with_iteration):
+    from fakes import prompt_text
+    from pseudolabel.app.tab_iterations import resume_iteration, wait
+    from pseudolabel.app.tab_profiles import load_profile_text, save_profile
+
+    ctx = app_ctx_with_iteration
+    it = ctx.iteration_id
+    pending = ctx.store.iteration_pairs(it).iloc[0]
+    ctx.store.set_iteration_pair_status(it, pending.a_id, pending.b_id, "error")
+    # drop the stored label so the resumed pair needs a fresh match call
+    ctx.store._write("DELETE FROM labels WHERE a_id=? AND b_id=?", (pending.a_id, pending.b_id))
+    text = load_profile_text(ctx, "sofas").replace("category_label: Диваны", "category_label: EDITED", 1)
+    assert save_profile(ctx, "sofas", text)[0]
+    before = len(ctx.vlm.calls)
+    resume_iteration(ctx, it)
+    wait(it, timeout=30)
+    new_prompts = [prompt_text(c["content"]) for c in ctx.vlm.calls[before:]]
+    assert new_prompts and not any("EDITED" in p for p in new_prompts)

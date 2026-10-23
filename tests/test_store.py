@@ -82,3 +82,14 @@ def test_query_labels_joins_origin_and_filters(tmp_store):
     assert df.set_index("b_id").loc["2", "origin"] == "top_1_10"
     assert list(tmp_store.query_labels("sofas", origin="top_11_100").b_id) == ["3"]
     assert list(tmp_store.query_labels("sofas", disagreement=True).b_id) == ["2"]
+
+
+def test_profile_at_returns_stored_version(tmp_store, sofa_profile):
+    from pseudolabel.profiles import profile_hash
+
+    v1 = tmp_store.register_profile_version(sofa_profile)
+    original = profile_hash(sofa_profile)
+    sofa_profile.match_rules += " edited"
+    tmp_store.register_profile_version(sofa_profile)
+    assert profile_hash(tmp_store.profile_at("sofas", v1)) == original
+    assert tmp_store.profile_hash_at("sofas", v1) == original

@@ -101,6 +101,14 @@ def _render(p: Profile, step: str, default: str, fields: dict[str, str]) -> str:
         raise ProfileError(f"prompt_overrides.{step}: bad placeholder {e}") from e
 
 
+def check_overrides(p: Profile) -> None:
+    """Render every overridden template with placeholder values; raises ProfileError on a bad template."""
+    fields = dict.fromkeys(FIELDS, "x")
+    for step, template in p.prompt_overrides.items():
+        if template:
+            _render(p, step, template, fields)
+
+
 def visual_prompt(p: Profile) -> str:
     return _render(p, "visual", VISUAL_TEMPLATE, _base_fields(p))
 

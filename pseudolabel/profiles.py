@@ -161,11 +161,15 @@ def _from_dict(d: Any) -> Profile:
 
 
 def parse_profile(yaml_text: str) -> Profile:
+    from pseudolabel.prompts import check_overrides  # prompts imports this module
+
     try:
         data = yaml.safe_load(yaml_text)
     except yaml.YAMLError as e:
         raise ProfileError(f"invalid YAML: {e}") from e
-    return _from_dict(data)
+    profile = _from_dict(data)
+    check_overrides(profile)
+    return profile
 
 
 def load_profile(path: Path) -> Profile:

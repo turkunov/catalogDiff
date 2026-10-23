@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from pseudolabel.data import Item
-from pseudolabel.profiles import Profile, dump_profile, profile_hash
+from pseudolabel.profiles import Profile, dump_profile, parse_profile, profile_hash
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS profile_versions (
@@ -108,6 +108,17 @@ class Store:
             self._con.execute("INSERT INTO profile_versions VALUES (?,?,?,?,?)", (p.name, version, h, dump_profile(p), _now()))
             self._con.commit()
             return version
+
+    def profile_at(self, name: str, version: int) -> Profile:
+        """The profile exactly as it was registered under `version`."""
+        rows = self._read("SELECT yaml FROM profile_versions WHERE name=? AND version=?", (name, version))
+        if not rows:
+            raise KeyError(f"profile {name!r} has no version {version}")
+        return parse_profile(rows[0][0])
+
+    def profile_hash_at(self, name: str, version: int) -> str | None:
+        rows = self._read("SELECT hash FROM profile_versions WHERE name=? AND version=?", (name, version))
+        return rows[0][0] if rows else None
 
     def profile_versions(self, name: str) -> list[tuple[int, str]]:
         return [(r[0], r[1]) for r in self._read("SELECT version, created_at FROM profile_versions WHERE name=? ORDER BY version", (name,))]

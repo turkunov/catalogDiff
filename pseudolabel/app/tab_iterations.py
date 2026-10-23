@@ -35,7 +35,8 @@ def _config(ctx: AppContext, form: dict) -> IterationConfig:
 def _run(ctx: AppContext, iteration_id: int) -> None:
     store = ctx.store
     iteration = store.get_iteration(iteration_id)
-    profile = ctx.profile(iteration["profile"])
+    # Label with the profile exactly as planned, even if the YAML file was edited since.
+    profile = store.profile_at(iteration["profile"], iteration["profile_version"])
     labeler = ctx.labeler(profile, iteration["profile_version"], iteration["config"].get("labeler_model"))
     gauge = PL_ITERATION_PROGRESS.labels(iteration=str(iteration_id))
     run_iteration(iteration_id, store, labeler, ctx.settings.vlm_concurrency,

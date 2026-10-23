@@ -122,3 +122,17 @@ def test_encoder_search_mode_has_title_origin(env, monkeypatch):
     monkeypatch.setattr(sampling, "TOP_K", 5)  # emulate a catalog much larger than the retrieval depth
     it = plan_iteration(env.cfg(budget=20, mode="encoder_search"), env.store, env.profile, env.universe, env.encoder, env.tmp)
     assert "title" in set(selected(env.store, it).origin)
+
+
+def test_run_rejects_labeler_with_edited_profile_same_version(env):
+    it = plan_iteration(env.cfg(budget=2), env.store, env.profile, env.universe, env.encoder, env.tmp)
+    env.labeler.profile.match_rules += " edited after planning"
+    with pytest.raises(ValueError, match="profile"):
+        run_iteration(it, env.store, env.labeler)
+
+
+def test_run_rejects_labeler_with_other_model(env):
+    it = plan_iteration(env.cfg(budget=2), env.store, env.profile, env.universe, env.encoder, env.tmp)
+    env.vlm.model = "another-model"
+    with pytest.raises(ValueError, match="model"):
+        run_iteration(it, env.store, env.labeler)

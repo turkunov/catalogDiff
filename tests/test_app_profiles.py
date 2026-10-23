@@ -34,3 +34,20 @@ def test_build_app_has_five_english_tabs(app_ctx):
     demo = build_app(app_ctx)
     labels = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
     assert labels == ["Profiles", "Pair labeling", "Iterations", "Manual review", "Labels"]
+
+
+def test_preview_uses_unsaved_editor_text(app_ctx):
+    from pseudolabel.app.tab_profiles import preview_prompts_text
+
+    text = load_profile_text(app_ctx, "sofas").replace("category_label: Диваны", "category_label: Unsaved", 1)
+    visual, _, _ = preview_prompts_text(app_ctx, text)
+    assert "Unsaved" in visual
+    assert "Диваны" in preview_prompts(app_ctx, "sofas")[0]
+
+
+def test_versions_table(app_ctx):
+    from pseudolabel.app.tab_profiles import versions_table
+
+    save_profile(app_ctx, "sofas", load_profile_text(app_ctx, "sofas"))
+    t = versions_table(app_ctx, "sofas")
+    assert list(t["version"]) == [1] and "created_at" in t.columns

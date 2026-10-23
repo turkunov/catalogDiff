@@ -12,7 +12,7 @@ from pseudolabel.data import Universe
 from pseudolabel.encoder import ImageEncoder, embed_items
 from pseudolabel.labeler import Labeler
 from pseudolabel.metrics import is_disagreement, labeler_vs_human, origin_stats, require_threshold
-from pseudolabel.profiles import Profile
+from pseudolabel.profiles import Profile, profile_hash
 from pseudolabel.sampling import DEFAULT_SHARES, build_pools, effective_shares, sample_easy_negatives, select_pairs
 from pseudolabel.store import Store
 
@@ -82,6 +82,12 @@ def run_iteration(iteration_id: int, store: Store, labeler: Labeler, concurrency
         raise ValueError(f"labeler profile version {labeler.profile_version} != iteration profile version "
                          f"{iteration['profile_version']}")
     profile = iteration["profile"]
+    if profile_hash(labeler.profile) != store.profile_hash_at(profile, iteration["profile_version"]):
+        raise ValueError(f"labeler profile differs from profile {profile!r} version {iteration['profile_version']} "
+                         "the iteration was planned with")
+    planned_model = iteration["config"].get("labeler_model")
+    if planned_model and labeler.vlm.model != planned_model:
+        raise ValueError(f"labeler model {labeler.vlm.model!r} != planned model {planned_model!r}")
     pairs = store.iteration_pairs(iteration_id)
     todo = pairs[(pairs["selected_for_vlm"] == 1) & pairs["status"].isin(["pending", "error"])]
     total, done = len(todo), 0

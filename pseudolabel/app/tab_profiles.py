@@ -1,9 +1,10 @@
 """Profiles tab: edit a category profile as YAML, validate, save as a new version, preview prompts."""
 import gradio as gr
+import pandas as pd
 
 from pseudolabel.app.context import AppContext
 from pseudolabel.data import Item, item_from_example
-from pseudolabel.profiles import ProfileError, parse_profile
+from pseudolabel.profiles import Profile, ProfileError, parse_profile
 from pseudolabel.prompts import match_prompt, text_params_prompt, visual_prompt
 
 
@@ -22,8 +23,20 @@ def save_profile(ctx: AppContext, name: str, yaml_text: str) -> tuple[bool, str]
     return True, f"Saved as version {ctx.store.register_profile_version(profile)}"
 
 
+def versions_table(ctx: AppContext, name: str) -> pd.DataFrame:
+    return pd.DataFrame(ctx.store.profile_versions(name), columns=["version", "created_at"])
+
+
 def preview_prompts(ctx: AppContext, name: str) -> tuple[str, str, str]:
-    p = ctx.profile(name)
+    return _preview(ctx, ctx.profile(name))
+
+
+def preview_prompts_text(ctx: AppContext, yaml_text: str) -> tuple[str, str, str]:
+    """Prompts of the profile currently in the editor, before saving."""
+    return _preview(ctx, parse_profile(yaml_text))
+
+
+def _preview(ctx: AppContext, p: Profile) -> tuple[str, str, str]:
     if p.examples:
         ex = p.examples[0]
         a, b = item_from_example("a", ex.a, ctx.repo_root), item_from_example("b", ex.b, ctx.repo_root)
@@ -45,6 +58,7 @@ def build(ctx: AppContext) -> None:
     with gr.Row():
         save = gr.Button("Validate & save", variant="primary")
         preview = gr.Button("Preview prompts")
+    versions = gr.Dataframe(versions_table(ctx, names[0]) if names else None, label="Saved versions", interactive=False)
     with gr.Accordion("Prompts", open=False):
         p_visual = gr.Textbox(label="Step 1 · visual attributes (photo only)", lines=10)
         p_text = gr.Textbox(label="Step 2 · parameters from text (text only)", lines=10)
@@ -52,8 +66,14 @@ def build(ctx: AppContext) -> None:
 
     def on_save(n, text):
         ok, msg = save_profile(ctx, n, text)
-        return ("✅ " if ok else "❌ ") + msg
+        return ("✅ " if ok else "❌ ") + msg, versions_table(ctx, n)
 
-    name.change(lambda n: load_profile_text(ctx, n), name, editor)
-    save.click(on_save, [name, editor], status)
-    preview.click(lambda n: preview_prompts(ctx, n), name, [p_visual, p_text, p_match])
+    def on_preview(text):
+        try:
+            return (*preview_prompts_text(ctx, text), "")
+        except ProfileError as e:
+            return "", "", "", f"❌ {e}"
+
+    name.change(lambda n: (load_profile_text(ctx, n), versions_table(ctx, n)), name, [editor, versions])
+    save.click(on_save, [name, editor], [status, versions])
+    preview.click(on_preview, editor, [p_visual, p_text, p_match, status])
