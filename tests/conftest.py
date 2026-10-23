@@ -49,9 +49,9 @@ def labeler_with_fake(tmp_store, sofa_profile):
     from fakes import FakeVLM
     from pseudolabel.labeler import Labeler
 
-    def make(handler, profile=None):
+    def make(handler, profile=None, options=None):
         vlm = FakeVLM(handler)
-        return Labeler(vlm, tmp_store, profile or sofa_profile, 1, retry_sleep_s=0), vlm
+        return Labeler(vlm, tmp_store, profile or sofa_profile, 1, retry_sleep_s=0, options=options), vlm
 
     return make
 

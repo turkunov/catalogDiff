@@ -31,7 +31,7 @@ def prompt_text(content: list[dict]) -> str:
 def route_by_prompt(visual: str = '{"attributes": {"color": "серый"}}', text: str = '{"params": {}}',
                     match: str = '{"reasoning": "ok", "class": 3}') -> Callable[[list[dict], dict, bool], str]:
     def handler(content, gen, json_mode):
-        t = prompt_text(content)
+        t = [p["text"] for p in content if p["type"] == "text"][-1]  # the step prompt comes after any examples
         if t.startswith(VISUAL_MARKER):
             return visual
         if t.startswith(TEXT_MARKER):

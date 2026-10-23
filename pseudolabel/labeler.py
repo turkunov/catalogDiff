@@ -8,9 +8,9 @@ from pseudolabel.data import Item
 from pseudolabel.images import to_data_url
 from pseudolabel.jsonparse import find_json_object
 from pseudolabel.profiles import Profile
-from pseudolabel.prompts import match_prompt, text_params_prompt, visual_prompt
+from pseudolabel.prompts import few_shot_text, match_prompt, text_params_prompt, visual_prompt
 from pseudolabel.store import LabelRow, Store
-from pseudolabel.vlm import VLMClient
+from pseudolabel.vlm import Completion, VLMClient, class_probs
 
 
 class LabelerError(RuntimeError):
@@ -34,6 +34,18 @@ def parse_class(payload: dict) -> int | None:
 
 
 @dataclass
+class LabelerOptions:
+    """How the labeler asks the VLM; the defaults are the production three-step labeler."""
+
+    visual_step: bool = True  # step 1: photo -> visual attributes
+    text_step: bool = True  # step 2: text -> missing parameters
+    use_text: bool = True  # False: no titles, descriptions or parameters anywhere (photo only)
+    few_shot: list[tuple[Item, Item, int]] = field(default_factory=list)  # solved examples shown before the pair
+    logprobs: bool = True  # class distribution from the match answer
+    namespace: str | None = None  # name annotations and labels are stored under; default the profile name
+
+
+@dataclass
 class PairResult:
     cls: int | None
     reasoning: str
@@ -44,6 +56,9 @@ class PairResult:
     visual_b: dict = field(default_factory=dict)
     params_a: dict = field(default_factory=dict)
     params_b: dict = field(default_factory=dict)
+    probs: dict[int, float] | None = None
+    confidence: float | None = None
+    completion_tokens: int = 0
 
 
 def _image_part(src: str) -> dict:
@@ -56,9 +71,13 @@ def _text_part(text: str) -> dict:
 
 class Labeler:
     def __init__(self, vlm: VLMClient, store: Store, profile: Profile, profile_version: int, retries: int = 2,
-                 retry_sleep_s: float = 1.5, on_call: Callable[[str, str, float], None] | None = None):
+                 retry_sleep_s: float = 1.5, on_call: Callable[[str, str, float], None] | None = None,
+                 options: LabelerOptions | None = None):
         self.vlm, self.store, self.profile, self.profile_version = vlm, store, profile, profile_version
         self.retries, self.retry_sleep_s, self.on_call = retries, retry_sleep_s, on_call
+        self.options = options or LabelerOptions()
+        self.namespace = self.options.namespace or profile.name
+        self.completion_tokens = 0  # all calls of this labeler, for cost reports
         self._locks: dict[tuple, threading.Lock] = {}
         self._locks_guard = threading.Lock()
 
@@ -74,13 +93,21 @@ class Labeler:
         return not self.profile.thinking
 
     def _call(self, step: str, content: list[dict], json_mode: bool) -> str:
+        return self._call_detailed(step, content, json_mode).text
+
+    def _call_detailed(self, step: str, content: list[dict], json_mode: bool, top_logprobs: int = 0) -> Completion:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
             start = time.time()
             try:
-                raw = self.vlm.complete(content, self._gen(step), json_mode)
+                if hasattr(self.vlm, "complete_detailed"):
+                    out = self.vlm.complete_detailed(content, self._gen(step), json_mode, top_logprobs)
+                else:
+                    out = Completion(self.vlm.complete(content, self._gen(step), json_mode), None, None)
                 self._report(step, "ok", time.time() - start)
-                return raw
+                with self._locks_guard:
+                    self.completion_tokens += out.completion_tokens or 0
+                return out
             except Exception as e:  # network, server or decoding failure
                 self._report(step, "error", time.time() - start)
                 last = e
@@ -93,10 +120,10 @@ class Labeler:
             self.on_call(step, status, latency_s)
 
     def _cached(self, item: Item, kind: str) -> dict | None:
-        return self.store.get_annotation(self.profile.name, item.side, item.id, kind, self.vlm.model, self.profile_version)
+        return self.store.get_annotation(self.namespace, item.side, item.id, kind, self.vlm.model, self.profile_version)
 
     def _save(self, item: Item, kind: str, result: dict, raw: str, error: str | None, latency_s: float) -> None:
-        self.store.put_annotation(self.profile.name, item.side, item.id, kind, self.vlm.model, self.profile_version,
+        self.store.put_annotation(self.namespace, item.side, item.id, kind, self.vlm.model, self.profile_version,
                                   result=result, raw=raw, error=error, latency_s=latency_s)
 
     def describe_item(self, item: Item) -> dict:
@@ -148,8 +175,18 @@ class Labeler:
             out[k] = None if v in (None, "") else str(v)
         return out
 
+    def _raw_params(self, item: Item) -> dict:
+        return {a.key: item.key_params.get(a.key) for a in self.profile.key_params}
+
+    def _match_content(self, a: Item, b: Item, prompt: str) -> list[dict]:
+        o = self.options
+        parts: list[dict] = []
+        for n, (ea, eb, cls) in enumerate(o.few_shot, start=1):
+            parts += [_image_part(ea.image), _image_part(eb.image), _text_part(few_shot_text(n, ea, eb, cls, o.use_text))]
+        return parts + [_image_part(a.image), _image_part(b.image), _text_part(prompt)]
+
     def label_pair(self, a: Item, b: Item, use_cache: bool = True) -> PairResult:
-        name = self.profile.name
+        name, o = self.namespace, self.options
         if use_cache:
             cached = self.store.get_vlm_label(name, a.id, b.id, self.vlm.model, self.profile_version)
             if cached is not None:
@@ -158,11 +195,19 @@ class Labeler:
         start = time.time()
         result = PairResult(None, "", "", None, 0.0)
         try:
-            result.visual_a, result.visual_b = self.describe_item(a), self.describe_item(b)
-            result.params_a, result.params_b = self.complete_params(a), self.complete_params(b)
-            prompt = match_prompt(self.profile, a, b, result.params_a, result.params_b, result.visual_a, result.visual_b)
-            result.raw = self._call("match", [_image_part(a.image), _image_part(b.image), _text_part(prompt)],
-                                    json_mode=self._json_mode())
+            if o.visual_step:
+                result.visual_a, result.visual_b = self.describe_item(a), self.describe_item(b)
+            if o.use_text and o.text_step:
+                result.params_a, result.params_b = self.complete_params(a), self.complete_params(b)
+            else:
+                result.params_a, result.params_b = self._raw_params(a), self._raw_params(b)
+            prompt = match_prompt(self.profile, a, b, result.params_a, result.params_b, result.visual_a, result.visual_b,
+                                  use_text=o.use_text, show_visual=o.visual_step, few_shot=bool(o.few_shot))
+            out = self._call_detailed("match", self._match_content(a, b, prompt), json_mode=self._json_mode(),
+                                      top_logprobs=5 if o.logprobs else 0)
+            result.raw, result.completion_tokens = out.text, out.completion_tokens or 0
+            result.probs = class_probs(out.logprobs)
+            result.confidence = max(result.probs.values()) if result.probs else None
             payload = find_json_object(result.raw, CLASS_KEYS)
             result.reasoning = str(payload.get("reasoning", ""))
             result.cls = parse_class(payload)
