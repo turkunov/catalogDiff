@@ -47,3 +47,20 @@ class FakeOpenAIClient:
         if "response_format" in kwargs and len(self.calls) == 1:
             raise RuntimeError("response_format not supported")
         return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+
+class FakeEncoder:
+    """Returns fixed vectors per image path, L2-normalized."""
+
+    def __init__(self, vectors: dict, version: str = "fake@1"):
+        import numpy as np
+
+        self.version = version
+        self.vectors = {k: np.asarray(v, dtype=np.float32) / np.linalg.norm(v) for k, v in vectors.items()}
+        self.embedded: list[str] = []
+
+    def embed(self, images: list[str]):
+        import numpy as np
+
+        self.embedded += images
+        return np.stack([self.vectors[i] for i in images]).astype(np.float32)

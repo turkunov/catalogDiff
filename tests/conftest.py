@@ -61,3 +61,8 @@ def fake_openai_client():
     from fakes import FakeOpenAIClient
 
     return FakeOpenAIClient()
+
+
+@pytest.fixture
+def items_with_images(tmp_path):
+    return [Item(str(i), "b", f"item {i}", "", {}, str(make_jpeg(tmp_path, name=f"it{i}.jpeg"))) for i in range(3)]
