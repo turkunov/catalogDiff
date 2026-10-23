@@ -70,3 +70,39 @@ def test_top_k_goes_to_extra_body(fake_openai_client):
     vlm.complete([{"type": "text", "text": "hi"}], {"temperature": 0.6, "top_p": 0.95, "top_k": 20}, json_mode=False)
     call = fake_openai_client.calls[-1]
     assert call["extra_body"]["top_k"] == 20 and "top_k" not in call and call["top_p"] == 0.95
+
+
+class ScriptedClient:
+    """Answers from a list in order; each item is (content, finish_reason)."""
+
+    def __init__(self, answers):
+        from types import SimpleNamespace
+
+        self.ns, self.answers, self.calls = SimpleNamespace, list(answers), []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        content, finish = self.answers.pop(0)
+        ns = self.ns
+        return ns(choices=[ns(message=ns(content=content), finish_reason=finish, logprobs=None)],
+                  usage=ns(completion_tokens=len(content)))
+
+
+def test_budget_forcing_closes_cut_thinking_and_asks_for_the_answer():
+    client = ScriptedClient([("думаю долго, класс 4 подходит", "length"), ('{"class": 4}', "stop")])
+    vlm = OpenAIVLM("http://x/v1", "m", client=client)
+    out = vlm.complete_detailed([{"type": "text", "text": "hi"}], {"thinking": True, "max_tokens": 50}, json_mode=False)
+    assert out.text.endswith('</think>\n\n{"class": 4}') and out.completion_tokens == len("думаю долго, класс 4 подходит") + 12
+    forced = client.calls[1]
+    assert forced["messages"][-1] == {"role": "assistant", "content": "думаю долго, класс 4 подходит\n</think>\n\n"}
+    assert forced["extra_body"]["continue_final_message"] is True and forced["extra_body"]["add_generation_prompt"] is False
+    assert forced["max_tokens"] == 512
+
+
+def test_no_budget_forcing_without_thinking_or_when_finished():
+    client = ScriptedClient([("cut", "length"), ('{"class": 2}', "stop")])
+    vlm = OpenAIVLM("http://x/v1", "m", client=client)
+    assert vlm.complete_detailed([{"type": "text", "text": "hi"}], {"thinking": False}, json_mode=False).text == "cut"
+    assert vlm.complete_detailed([{"type": "text", "text": "hi"}], {"thinking": True}, json_mode=False).text == '{"class": 2}'
+    assert len(client.calls) == 2

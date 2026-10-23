@@ -102,8 +102,11 @@ def variant_metrics(rows: list[dict], threshold: int) -> dict:
 
 
 def run_variant(v: Variant, profile: Profile, universe: Universe, human: dict, store: Store, out_dir: Path,
-                threshold: int, vlm=None, limit: int | None = None, progress=None) -> dict:
-    """Label the eval pairs not yet in out_dir/<name>.jsonl, then write <name>.metrics.json; returns the metrics."""
+                threshold: int, vlm=None, limit: int | None = None, progress=None, retry_failed: bool = False) -> dict:
+    """Label the eval pairs not yet in out_dir/<name>.jsonl, then write <name>.metrics.json; returns the metrics.
+
+    retry_failed also labels again the pairs whose last row has no class; the newer row wins.
+    """
     require_threshold(threshold)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -121,7 +124,7 @@ def run_variant(v: Variant, profile: Profile, universe: Universe, human: dict, s
     pairs = [p for p in universe.pairs if p in human and (not v.skeptic_of or p in source)][: limit or None]
     path = out_dir / f"{v.name}.jsonl"
     done = read_rows(path)
-    todo = [p for p in pairs if p not in done]
+    todo = [p for p in pairs if p not in done or (retry_failed and done[p]["vlm"] is None)]
     lock, counter, start = threading.Lock(), [0], time.time()
 
     def one(pair: tuple[str, str]) -> None:

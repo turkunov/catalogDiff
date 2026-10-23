@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 GEN_KEYS = ("temperature", "top_p", "max_tokens")
+FORCED_ANSWER_TOKENS = 512
 
 
 @dataclass
@@ -12,6 +13,7 @@ class Completion:
     text: str
     logprobs: list[dict] | None  # [{"token": str, "top_logprobs": [{"token": str, "logprob": float}]}]
     completion_tokens: int | None
+    finish_reason: str | None = None
 
 
 class VLMClient(Protocol):
@@ -79,10 +81,25 @@ class OpenAIVLM:
         }
         if top_logprobs:
             try:
-                return self._create({**kwargs, "logprobs": True, "top_logprobs": top_logprobs}, json_mode)
+                kw = {**kwargs, "logprobs": True, "top_logprobs": top_logprobs}
+                return self._force_answer(kw, self._create(kw, json_mode), gen)
             except Exception:
                 pass  # server or model without logprobs: answer without them
-        return self._create(kwargs, json_mode)
+        return self._force_answer(kwargs, self._create(kwargs, json_mode), gen)
+
+    def _force_answer(self, kwargs: dict, out: Completion, gen: dict) -> Completion:
+        """Budget forcing: reasoning cut by the token limit is closed with </think> and the model answers right away."""
+        if out.finish_reason != "length" or not gen.get("thinking", True) or "</think>" in out.text:
+            return out
+        prefix = out.text + "\n</think>\n\n"
+        forced = self._create({
+            **kwargs,
+            "messages": kwargs["messages"] + [{"role": "assistant", "content": prefix}],
+            "max_tokens": FORCED_ANSWER_TOKENS,
+            "extra_body": {**kwargs["extra_body"], "continue_final_message": True, "add_generation_prompt": False},
+        }, json_mode=False)
+        return Completion(prefix + forced.text, forced.logprobs,
+                          (out.completion_tokens or 0) + (forced.completion_tokens or 0), forced.finish_reason)
 
     def _create(self, kwargs: dict, json_mode: bool) -> Completion:
         resp = None
@@ -95,4 +112,5 @@ class OpenAIVLM:
             resp = self.client.chat.completions.create(**kwargs)
         choice = resp.choices[0]
         usage = getattr(resp, "usage", None)
-        return Completion(choice.message.content or "", _plain_logprobs(choice), getattr(usage, "completion_tokens", None))
+        return Completion(choice.message.content or "", _plain_logprobs(choice), getattr(usage, "completion_tokens", None),
+                          getattr(choice, "finish_reason", None))

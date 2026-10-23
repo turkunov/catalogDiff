@@ -44,6 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", required=True)
     p.add_argument("--variant", required=True)
     p.add_argument("--limit", type=int, help="only the first N eval pairs (smoke test)")
+    p.add_argument("--retry-failed", action="store_true", help="label again the pairs that got no class")
     p = sub.add_parser("segment", help="cut the item out of every eval photo of an ablation config")
     p.add_argument("--config", required=True)
     p.add_argument("--method", required=True, choices=["sam3", "birefnet"])
@@ -87,7 +88,7 @@ def _ablate(args, settings) -> int:
         return 0
     store = Store(Path(cfg["db"])) if cfg.get("db") else Store(settings.db_path)
     m = run_variant(variants[args.variant], profile, universe, human, store, out_dir, cfg["threshold"],
-                    limit=args.limit, progress=stderr_progress(args.variant))
+                    limit=args.limit, progress=stderr_progress(args.variant), retry_failed=args.retry_failed)
     print(json.dumps({k: v for k, v in m.items() if k != "confusion"}, ensure_ascii=False, indent=2))
     return 0
 

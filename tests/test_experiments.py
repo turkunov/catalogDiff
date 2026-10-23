@@ -174,3 +174,18 @@ def test_cli_segment_writes_image_map(tmp_path, monkeypatch):
     assert cli.main(["segment", "--config", str(cfg), "--method", "sam3", "--out", str(out_map)]) == 0
     mapping = json.loads(out_map.read_text())
     assert seen == {"m": "sam3", "p": "sofa"} and len(mapping) == 5  # small_rows(): 2 Avito and 3 Ozon photos
+
+
+def test_run_variant_retries_failed_pairs(tmp_path, tmp_store):
+    from pseudolabel.experiments import Variant, load_eval, read_rows, run_variant
+
+    profile = sofa_profile_with_root(tmp_path)
+    pairs, labels = _eval_files(tmp_path)
+    universe, human = load_eval(pairs, labels, profile)
+    v = Variant(name="base", base_url="x", model="fake-vlm", concurrency=1)
+    run_variant(v, profile, universe, human, tmp_store, tmp_path / "out", threshold=4,
+                vlm=FakeVLM(route_by_prompt(match='{"reasoning": "cut"}')))
+    vlm = FakeVLM(route_by_prompt(match='{"reasoning": "ok", "class": 2}'))
+    m = run_variant(v, profile, universe, human, tmp_store, tmp_path / "out", threshold=4, vlm=vlm, retry_failed=True)
+    assert m["failed"] == 0 and m["n"] == 3 and len(read_rows(tmp_path / "out" / "base.jsonl")) == 3
+    assert sum(1 for c in vlm.calls if c["content"][-1]["text"].startswith("[step: match]")) == 3
