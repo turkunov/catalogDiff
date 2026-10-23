@@ -4,7 +4,7 @@ import os
 import gradio as gr
 from prometheus_client import start_http_server
 
-from pseudolabel.app import tab_iterations, tab_labels, tab_pair, tab_profiles, tab_review
+from pseudolabel.app import tab_iterations, tab_pair, tab_profiles
 from pseudolabel.app.context import AppContext, make_context
 from pseudolabel.settings import load_settings
 
@@ -18,10 +18,6 @@ def build_app(ctx: AppContext) -> gr.Blocks:
                 tab_pair.build(ctx)
             with gr.Tab("Iterations"):
                 tab_iterations.build(ctx)
-            with gr.Tab("Manual review"):
-                tab_review.build(ctx)
-            with gr.Tab("Labels"):
-                tab_labels.build(ctx)
     return demo
 
 

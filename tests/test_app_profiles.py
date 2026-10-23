@@ -30,10 +30,10 @@ def test_preview_prompts(app_ctx):
     assert "upholstery" in visual and "Parameters to extract" in text and "диван роденго" in match
 
 
-def test_build_app_has_five_english_tabs(app_ctx):
+def test_build_app_has_three_english_tabs(app_ctx):
     demo = build_app(app_ctx)
     labels = [b.label for b in demo.blocks.values() if isinstance(b, gr.Tab)]
-    assert labels == ["Profiles", "Pair labeling", "Iterations", "Manual review", "Labels"]
+    assert labels == ["Profiles", "Pair labeling", "Iterations"]
 
 
 def test_preview_uses_unsaved_editor_text(app_ctx):

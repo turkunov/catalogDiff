@@ -12,6 +12,7 @@ from pseudolabel.labeler import PairResult
 from pseudolabel.metrics import THRESHOLD_MISSING, require_threshold
 from pseudolabel.segment import cut_out
 
+LOW_CONFIDENCE = 0.7  # same default as the low-confidence flag elsewhere in the pipeline
 SEGMENTATION = [("Original photo", "none"), ("SAM3 · object by the profile's text prompt", "sam3"),
                 ("BiRefNet · salient object", "birefnet")]
 
@@ -29,6 +30,7 @@ class PairView:
     error: str | None
     image_a: str = ""  # the photos the labeler saw (cut-outs when segmentation is on)
     image_b: str = ""
+    confidence: float | None = None  # probability of the chosen class
 
 
 def _view(r: PairResult, threshold: int | None, a: Item, b: Item) -> PairView:
@@ -39,7 +41,7 @@ def _view(r: PairResult, threshold: int | None, a: Item, b: Item) -> PairView:
     else:
         binary = "positive" if r.cls >= require_threshold(threshold) else "negative"
     return PairView(r.visual_a, r.visual_b, r.params_a, r.params_b, r.reasoning, r.cls, binary, round(r.latency_s, 1), r.error,
-                    a.image, b.image)
+                    a.image, b.image, r.confidence)
 
 
 def _segmented(ctx: AppContext, item: Item, method: str, seg) -> Item:
@@ -90,7 +92,11 @@ def _threshold(value) -> int | None:
 
 def _outputs(v: PairView):
     cls = "—" if v.cls is None else str(v.cls)
-    summary = f"### Class: {cls} · {v.binary} · {v.latency_s}s" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
+    conf = "" if v.confidence is None else f" · confidence {v.confidence:.2f}"
+    summary = f"### Class: {cls} · {v.binary}{conf} · {v.latency_s}s" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
+    if v.confidence is not None and v.confidence < LOW_CONFIDENCE:
+        summary += ("\n\n⚠️ **Low confidence** — no single class is clearly preferred "
+                    f"(below {LOW_CONFIDENCE}); this pair should be checked by hand.")
     return summary, v.image_a or None, v.image_b or None, v.reasoning, v.visual_a, v.visual_b, v.params_a, v.params_b
 
 

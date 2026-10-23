@@ -64,3 +64,12 @@ def test_threshold_zero_or_empty_means_not_set():
     from pseudolabel.app.tab_pair import _threshold
 
     assert _threshold(0) is None and _threshold(None) is None and _threshold("") is None and _threshold(4) == 4
+
+
+def test_summary_shows_confidence_and_flags_low(app_ctx_fake_vlm):
+    from pseudolabel.app.tab_pair import PairView, _outputs
+
+    sure = PairView({}, {}, {}, {}, "", 5, "positive", 3.0, None, confidence=0.98)
+    unsure = PairView({}, {}, {}, {}, "", 4, "positive", 3.0, None, confidence=0.55)
+    assert "confidence 0.98" in _outputs(sure)[0] and "Low confidence" not in _outputs(sure)[0]
+    assert "Low confidence" in _outputs(unsure)[0]

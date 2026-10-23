@@ -30,6 +30,7 @@ variants:
   - {name: skeptic, base_url: "http://vllm-9b-2:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12, skeptic_of: base}
   # model comparison on the base configuration (base itself is Qwen3.5-9B)
   - {name: m_qwen35_4b, base_url: "http://vllm-4b:8000/v1", model: Qwen/Qwen3.5-4B, concurrency: 16}
+  # m_qwen35_27b needs the main server started with VLLM_MODEL=Qwen/Qwen3.5-27B (the default is 9B)
   - {name: m_qwen35_27b, base_url: "http://vllm:8000/v1", model: Qwen/Qwen3.5-27B, concurrency: 16}
   - {name: m_qwen25vl_7b, base_url: "http://vllm-qwen25vl-7b:8000/v1", model: Qwen/Qwen2.5-VL-7B-Instruct, concurrency: 16}
   - {name: m_internvl35_8b, base_url: "http://vllm-internvl35-8b:8000/v1", model: OpenGVLab/InternVL3_5-8B, concurrency: 16}

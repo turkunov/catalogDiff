@@ -22,7 +22,7 @@ def test_grafana_password_from_env():
 def test_services_and_models():
     services = compose()["services"]
     assert {"vllm", "app", "jupyter", "prometheus", "grafana"} <= set(services)
-    assert "Qwen/Qwen3.5-27B" in services["vllm"]["command"] and "--max-model-len 8192" in services["vllm"]["command"]
+    assert "Qwen/Qwen3.5-9B" in services["vllm"]["command"] and "--max-model-len 16384" in services["vllm"]["command"]
     assert (ROOT / "docker" / "vllm-cu129" / "Dockerfile").exists() and (ROOT / ".env.example").exists()
 
 

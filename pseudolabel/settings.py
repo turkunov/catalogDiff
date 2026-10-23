@@ -24,7 +24,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     work_dir = Path(env.get("PL_WORK_DIR", "/data/pseudolabel"))
     return Settings(
         vllm_base_url=env.get("VLLM_BASE_URL", "http://vllm:8000/v1"),
-        vllm_model=env.get("VLLM_MODEL", "Qwen/Qwen3.5-27B"),
+        vllm_model=env.get("VLLM_MODEL", "Qwen/Qwen3.5-9B"),
         vllm_api_key=env.get("VLLM_API_KEY", "EMPTY"),
         db_path=Path(env.get("PL_DB_PATH", str(work_dir / "labels.sqlite"))),
         work_dir=work_dir,
