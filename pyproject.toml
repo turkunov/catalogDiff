@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pseudolabel"
+version = "0.1.0"
+description = "VLM pseudo-labeling of listing pairs for image-only duplicate search"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "numpy",
+    "pyyaml",
+    "pillow",
+    "openai>=1.52",
+    "requests",
+    "scikit-learn",
+    "gradio>=5,<6",
+    "prometheus-client",
+    "pyarrow",
+]
+
+[project.optional-dependencies]
+encoder = ["torch", "transformers>=4.49"]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["pseudolabel*"]
+
+[tool.pytest.ini_options]
+markers = ["slow: needs model download or GPU"]
+addopts = "-m 'not slow'"
+testpaths = ["tests"]
