@@ -189,3 +189,24 @@ def test_run_variant_retries_failed_pairs(tmp_path, tmp_store):
     m = run_variant(v, profile, universe, human, tmp_store, tmp_path / "out", threshold=4, vlm=vlm, retry_failed=True)
     assert m["failed"] == 0 and m["n"] == 3 and len(read_rows(tmp_path / "out" / "base.jsonl")) == 3
     assert sum(1 for c in vlm.calls if c["content"][-1]["text"].startswith("[step: match]")) == 3
+
+
+def test_photo_dup_table_counts_shortcut_pairs(tmp_path):
+    import shutil
+
+    from pseudolabel.experiments import load_eval, photo_dup_rows
+
+    profile = sofa_profile_with_root(tmp_path)
+    pairs, labels = _eval_files(tmp_path)
+    universe, human = load_eval(pairs, labels, profile)
+    from test_dedup import _noise
+
+    # solid test photos all hash alike: give every photo its own picture, then make one pair share a photo
+    for seed, it in enumerate([*universe.items_a.values(), *universe.items_b.values()]):
+        _noise(it.image, seed)
+    a, b = universe.items_a["2272175750151"], universe.items_b["380288750116"]  # reference class 5
+    shutil.copy(a.image, b.image)
+    rows = photo_dup_rows(universe, human, thresholds=[0, 64], base={})
+    t0 = next(r for r in rows if r["max_distance"] == 0)
+    assert t0["pairs"] == 1 and t0["precision_5"] == 1.0
+    assert next(r for r in rows if r["max_distance"] == 64)["pairs"] == 3

@@ -196,5 +196,27 @@ def report(out_dir: Path, baseline: str = "base", threshold: int = 4, order: lis
     return ("## Variants\n\n" + "\n".join(lines) + "\n\n## Exact match by reference class\n\n" + "\n".join(by_class) + "\n")
 
 
+def photo_dup_rows(universe: Universe, human: dict, thresholds: list[int], base: dict) -> list[dict]:
+    """Same-photo shortcut on the eval set: how many pairs it takes at each distance and how often they are 5 (or >= 4).
+
+    With base rows, also the exact match of "base + shortcut" (shortcut pairs get 5, the rest keep the base class).
+    """
+    from pseudolabel.dedup import photo_distance
+
+    dist = {p: photo_distance(universe.items_a[p[0]].image, universe.items_b[p[1]].image) for p in human}
+    out = []
+    for t in thresholds:
+        hit = [p for p, d in dist.items() if d is not None and d <= t]
+        row = {"max_distance": t, "pairs": len(hit),
+               "precision_5": sum(human[p] == 5 for p in hit) / len(hit) if hit else None,
+               "precision_4plus": sum(human[p] >= 4 for p in hit) / len(hit) if hit else None,
+               "recall_5": sum(human[p] == 5 for p in hit) / max(1, sum(c == 5 for c in human.values()))}
+        if base:
+            pred = {p: (5 if p in set(hit) else r["vlm"]) for p, r in base.items()}
+            row["base_plus_shortcut_exact"] = sum(pred[p] == human[p] for p in pred) / len(pred)
+        out.append(row)
+    return out
+
+
 def stderr_progress(name: str):
     return lambda d, total: print(f"\r{name}: {d}/{total}", end="", file=sys.stderr, flush=True)

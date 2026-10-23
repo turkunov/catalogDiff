@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from pseudolabel.data import Item
+from pseudolabel.dedup import photo_distance, picked_for_check
 from pseudolabel.images import to_data_url
 from pseudolabel.jsonparse import find_json_object
 from pseudolabel.profiles import Profile
@@ -43,6 +44,8 @@ class LabelerOptions:
     few_shot: list[tuple[Item, Item, int]] = field(default_factory=list)  # solved examples shown before the pair
     logprobs: bool = True  # class distribution from the match answer
     namespace: str | None = None  # name annotations and labels are stored under; default the profile name
+    photo_dup_max_distance: int | None = None  # same-photo shortcut: hash distance up to this is class 5, no VLM
+    photo_dup_check_share: float = 0.05  # share of shortcut pairs still sent to the VLM to measure the shortcut
 
 
 @dataclass
@@ -61,6 +64,7 @@ class PairResult:
     completion_tokens: int = 0
     skeptic_cls: int | None = None
     skeptic_raw: str = ""
+    photo_dup_distance: int | None = None
 
 
 def _image_part(src: str) -> dict:
@@ -197,6 +201,17 @@ class Labeler:
                                   self._cached(a, "visual") or {}, self._cached(b, "visual") or {})
         start = time.time()
         result = PairResult(None, "", "", None, 0.0)
+        if o.photo_dup_max_distance is not None:
+            result.photo_dup_distance = photo_distance(a.image, b.image)
+            d = result.photo_dup_distance
+            if d is not None and d <= o.photo_dup_max_distance and not picked_for_check(a.id, b.id, o.photo_dup_check_share):
+                result.cls, result.probs, result.confidence = 5, {5: 1.0}, 1.0
+                result.reasoning = f"same photo: perceptual hash distance {d}"
+                result.latency_s = time.time() - start
+                self.store.put_label(LabelRow(name, a.id, b.id, "vlm", 5, reasoning=result.reasoning,
+                                              latency_s=result.latency_s, model=self.vlm.model,
+                                              profile_version=self.profile_version, gen_params={"photo_dup_distance": d}))
+                return result
         try:
             if o.visual_step:
                 result.visual_a, result.visual_b = self.describe_item(a), self.describe_item(b)

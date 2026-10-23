@@ -30,8 +30,8 @@ class AppContext:
     def profile(self, name: str) -> Profile:
         return load_profile(self.settings.profiles_dir / f"{name}.yaml")
 
-    def labeler(self, profile: Profile, version: int, model: str | None = None) -> Labeler:
-        return Labeler(self.vlm_factory(model), self.store, profile, version, on_call=record_vlm_call)
+    def labeler(self, profile: Profile, version: int, model: str | None = None, options=None) -> Labeler:
+        return Labeler(self.vlm_factory(model), self.store, profile, version, on_call=record_vlm_call, options=options)
 
 
 def make_context(settings: Settings) -> AppContext:

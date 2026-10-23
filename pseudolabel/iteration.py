@@ -35,6 +35,8 @@ class IterationConfig:
     review_size: int = 50
     stop: dict | None = None
     seed: int = 0
+    photo_dup_max_distance: int | None = None  # same-photo shortcut (off by default)
+    photo_dup_check_share: float = 0.05
 
 
 def _labeled_pairs(store: Store, profile: str, model: str, version: int) -> set[tuple[str, str]]:
@@ -197,3 +199,11 @@ def finalize_iteration(iteration_id: int, store: Store) -> dict:
     report["stop"] = {**stop, "triggered": stop_triggered(stop, store, profile, report)} if stop else None
     store.finish_iteration(iteration_id, "done", report)
     return report
+
+
+def labeler_options(config: dict):
+    """Labeler options an iteration's stored config asks for (the same-photo shortcut)."""
+    from pseudolabel.labeler import LabelerOptions
+
+    return LabelerOptions(photo_dup_max_distance=config.get("photo_dup_max_distance"),
+                          photo_dup_check_share=config.get("photo_dup_check_share", 0.05))

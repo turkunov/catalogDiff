@@ -4,11 +4,12 @@ import json
 import sys
 from pathlib import Path
 
+import pandas as pd
 import yaml
 
 from pseudolabel.data import load_universe
 from pseudolabel.export import build_training_set, write_export
-from pseudolabel.iteration import IterationConfig, finalize_iteration, plan_iteration, run_iteration
+from pseudolabel.iteration import IterationConfig, finalize_iteration, labeler_options, plan_iteration, run_iteration
 from pseudolabel.manual_test import import_human_labels, load_manual_test_csv, run_manual_test, select_manual_test
 from pseudolabel.metrics import ThresholdRequired
 from pseudolabel.profiles import load_profile
@@ -49,18 +50,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", required=True)
     p.add_argument("--method", required=True, choices=["sam3", "birefnet"])
     p.add_argument("--out", required=True, help="JSON {photo: cut-out} for a variant's image_map")
+    p = sub.add_parser("photo-dup-eval", help="same-photo shortcut on an ablation config's eval set")
+    p.add_argument("--config", required=True)
     p = sub.add_parser("ablate-report", help="compare the variants of an ablation config; writes report.md")
     p.add_argument("--config", required=True)
     p.add_argument("--baseline", default="base")
     return parser
 
 
-def _labeler(settings, store, profile, version, model: str | None = None):
+def _labeler(settings, store, profile, version, model: str | None = None, options=None):
     from pseudolabel.labeler import Labeler
     from pseudolabel.vlm import OpenAIVLM
 
     vlm = OpenAIVLM(settings.vllm_base_url, model or settings.vllm_model, settings.vllm_api_key)
-    return Labeler(vlm, store, profile, version)
+    return Labeler(vlm, store, profile, version, options=options)
 
 
 def _ablate(args, settings) -> int:
@@ -75,6 +78,13 @@ def _ablate(args, settings) -> int:
         return 0
     profile = load_profile(settings.profiles_dir / f"{cfg['profile']}.yaml")
     universe, human = load_eval(Path(cfg["eval_pairs"]), Path(cfg["eval_labels"]), profile)
+    if args.cmd == "photo-dup-eval":
+        from pseudolabel.experiments import photo_dup_rows, read_rows
+
+        rows = photo_dup_rows(universe, human, list(range(0, 17, 2)), read_rows(out_dir / "base.jsonl"))
+        (out_dir / "photo_dup.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        print(pd.DataFrame(rows).to_markdown(index=False, floatfmt=".2f"))
+        return 0
     if args.cmd == "segment":
         from pseudolabel import segment
 
@@ -96,7 +106,7 @@ def _ablate(args, settings) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = load_settings()
-    if args.cmd in ("ablate", "ablate-report", "segment"):
+    if args.cmd in ("ablate", "ablate-report", "segment", "photo-dup-eval"):
         return _ablate(args, settings)
     store = Store(settings.db_path)
     try:
@@ -110,7 +120,8 @@ def main(argv: list[str] | None = None) -> int:
             it = plan_iteration(cfg, store, profile, load_universe(profile, Path(cfg.pairs_path)), encoder,
                                 settings.work_dir / "embeddings")
             version = store.get_iteration(it)["profile_version"]
-            labeler = _labeler(settings, store, store.profile_at(profile.name, version), version, cfg.labeler_model)
+            labeler = _labeler(settings, store, store.profile_at(profile.name, version), version, cfg.labeler_model,
+                               labeler_options(store.get_iteration(it)["config"]))
             run_iteration(it, store, labeler, settings.vlm_concurrency,
                           progress=lambda d, t: print(f"\r{d}/{t}", end="", file=sys.stderr))
             print(json.dumps({"iteration": it, **finalize_iteration(it, store)}, ensure_ascii=False, indent=2))

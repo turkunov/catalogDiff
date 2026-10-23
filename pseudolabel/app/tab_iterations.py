@@ -11,7 +11,7 @@ from pseudolabel.app.context import AppContext
 from pseudolabel.app.metrics import PL_ITERATION_PROGRESS
 from pseudolabel.data import load_universe
 from pseudolabel.export import build_training_set, write_export
-from pseudolabel.iteration import IterationConfig, finalize_iteration, plan_iteration, run_iteration
+from pseudolabel.iteration import IterationConfig, finalize_iteration, labeler_options, plan_iteration, run_iteration
 from pseudolabel.metrics import ThresholdRequired
 from pseudolabel.sampling import DEFAULT_SHARES
 
@@ -47,7 +47,8 @@ def _label_and_finalize(ctx: AppContext, iteration_id: int) -> None:
     iteration = store.get_iteration(iteration_id)
     # Label with the profile exactly as planned, even if the YAML file was edited since.
     profile = store.profile_at(iteration["profile"], iteration["profile_version"])
-    labeler = ctx.labeler(profile, iteration["profile_version"], iteration["config"].get("labeler_model"))
+    labeler = ctx.labeler(profile, iteration["profile_version"], iteration["config"].get("labeler_model"),
+                          labeler_options(iteration["config"]))
     gauge = PL_ITERATION_PROGRESS.labels(iteration=str(iteration_id))
     run_iteration(iteration_id, store, labeler, ctx.settings.vlm_concurrency,
                   progress=lambda done, total: gauge.set(done / total if total else 1.0))
