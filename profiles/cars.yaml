@@ -1,0 +1,76 @@
+name: cars
+category_label: Passenger cars
+reasoning_language: en
+input:
+  a:
+    id: q_item_id
+    title: q_title
+    description: q_description
+    key_params: q_key_params
+    image: "{q_image}"
+    category: null
+  b:
+    id: d_item_id
+    title: d_title
+    description: d_description
+    key_params: d_key_params
+    image: "{d_image}"
+    category: null
+  image_root: ""
+categories:
+  a: []
+  b: []
+legacy_label_column: null
+visual_attributes:
+  - key: make_model
+    description: make and model recognized from the photo
+  - key: body_type
+    description: "body type: sedan, hatchback, wagon, SUV, coupe, minivan, pickup"
+  - key: color
+    description: body color
+  - key: generation
+    description: generation or facelift recognized by styling (headlights, grille, bumpers)
+key_params:
+  - key: make
+    description: manufacturer
+  - key: model
+    description: model name
+  - key: year
+    description: model year
+  - key: body_type
+    description: body type
+  - key: color
+    description: body color
+class_definitions:
+  1: Not comparable. At least one listing is not a passenger car, or the photo does not show the car.
+  2: Different products. Different make, model or body type, or a clearly different color.
+  3: >-
+    Same make and model but visibly different generation or facelift, or clearly different trim
+    (wheels, body kit, roof).
+  4: >-
+    Very similar. Same make, model, generation and color, but differences in details make it likely
+    another vehicle of the same model.
+  5: >-
+    Same vehicle. Make, model, generation and color match and visible details (wheels, damage,
+    accessories, surroundings) indicate the same car; only angle or photo quality differ.
+match_rules: >-
+  Look at the photos first; text is a hint (year, mileage, trim). Ignore the background except as
+  evidence of the same vehicle. Normalize make and model names (VW = Volkswagen, Кия = Kia, Cyrillic
+  and Latin spellings). Years within the same generation are compatible.
+prompt_overrides:
+  visual: null
+  text_params: null
+  match: null
+generation:
+  visual:
+    temperature: 0
+    max_tokens: 1024
+  text_params:
+    temperature: 0
+    max_tokens: 1024
+  match:
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 1024
+thinking: true
+examples: []
