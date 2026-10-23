@@ -173,3 +173,39 @@ def tmp_settings_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PL_WORK_DIR", str(tmp_path / "work"))
     monkeypatch.setenv("PL_PROFILES_DIR", str(PROFILES))
     return tmp_path
+
+
+def _app_ctx(tmp_path, handler=None):
+    import shutil
+
+    from fakes import FakeEncoder, FakeVLM, route_by_prompt
+    from helpers import PROFILES
+    from pseudolabel.app.context import AppContext
+    from pseudolabel.profiles import Example, dump_profile, load_profile
+    from pseudolabel.settings import load_settings
+    from pseudolabel.store import Store
+
+    profiles = tmp_path / "profiles"
+    shutil.copytree(PROFILES, profiles)
+    sofas = load_profile(profiles / "sofas.yaml")
+    a_img, b_img = make_jpeg(tmp_path, name="ex_a.jpeg"), make_jpeg(tmp_path, color=(9, 9, 9), name="ex_b.jpeg")
+    sofas.examples = [Example("same sofa", 5, {"title": "диван роденго", "description": "", "key_params": {}, "image": str(a_img)},
+                              {"title": "диван кухонный роденго", "description": "", "key_params": {}, "image": str(b_img)})]
+    (profiles / "sofas.yaml").write_text(dump_profile(sofas), encoding="utf-8")
+    settings = load_settings({"PL_WORK_DIR": str(tmp_path / "work"), "PL_PROFILES_DIR": str(profiles)})
+    vlm = FakeVLM(handler or route_by_prompt(match='{"reasoning": "same model", "class": 5}'))
+    ctx = AppContext(settings, Store(settings.db_path), vlm_factory=lambda model=None: vlm,
+                     encoder_factory=lambda checkpoint: FakeEncoder({}))
+    ctx.first_example = lambda name: load_profile(profiles / f"{name}.yaml").examples[0].name
+    ctx.vlm = vlm
+    return ctx
+
+
+@pytest.fixture
+def app_ctx(tmp_path):
+    return _app_ctx(tmp_path)
+
+
+@pytest.fixture
+def app_ctx_fake_vlm(tmp_path):
+    return _app_ctx(tmp_path)
