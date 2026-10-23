@@ -28,6 +28,8 @@ variants:
   - {name: birefnet, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
      image_map: /data/pseudolabel/ablations/segment/birefnet_map.json}
   - {name: skeptic, base_url: "http://vllm-9b-2:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12, skeptic_of: base}
+  # base after steps 1-2 lost thinking and run in parallel (profile change of 6d59388); base itself ran before it
+  - {name: base_fast_steps, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 24}
   # model comparison on the base configuration (base itself is Qwen3.5-9B)
   - {name: m_qwen35_4b, base_url: "http://vllm-4b:8000/v1", model: Qwen/Qwen3.5-4B, concurrency: 16}
   # m_qwen35_27b needs the main server started with VLLM_MODEL=Qwen/Qwen3.5-27B (the default is 9B)
