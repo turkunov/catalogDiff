@@ -44,6 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", required=True)
     p.add_argument("--variant", required=True)
     p.add_argument("--limit", type=int, help="only the first N eval pairs (smoke test)")
+    p = sub.add_parser("segment", help="cut the item out of every eval photo of an ablation config")
+    p.add_argument("--config", required=True)
+    p.add_argument("--method", required=True, choices=["sam3", "birefnet"])
+    p.add_argument("--out", required=True, help="JSON {photo: cut-out} for a variant's image_map")
     p = sub.add_parser("ablate-report", help="compare the variants of an ablation config; writes report.md")
     p.add_argument("--config", required=True)
     p.add_argument("--baseline", default="base")
@@ -70,6 +74,17 @@ def _ablate(args, settings) -> int:
         return 0
     profile = load_profile(settings.profiles_dir / f"{cfg['profile']}.yaml")
     universe, human = load_eval(Path(cfg["eval_pairs"]), Path(cfg["eval_labels"]), profile)
+    if args.cmd == "segment":
+        from pseudolabel import segment
+
+        photos = [it.image for it in [*universe.items_a.values(), *universe.items_b.values()]]
+        out = Path(args.out)
+        seg = segment.make_segmenter(args.method, prompt=profile.object_prompt or profile.category_label,
+                                     device=settings.encoder_device)
+        mapping, stats = segment.segment_images(seg, photos, out.parent / args.method)
+        out.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+        print(json.dumps(stats))
+        return 0
     store = Store(Path(cfg["db"])) if cfg.get("db") else Store(settings.db_path)
     m = run_variant(variants[args.variant], profile, universe, human, store, out_dir, cfg["threshold"],
                     limit=args.limit, progress=stderr_progress(args.variant))
@@ -80,7 +95,7 @@ def _ablate(args, settings) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = load_settings()
-    if args.cmd in ("ablate", "ablate-report"):
+    if args.cmd in ("ablate", "ablate-report", "segment"):
         return _ablate(args, settings)
     store = Store(settings.db_path)
     try:

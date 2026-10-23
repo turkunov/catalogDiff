@@ -9,6 +9,6 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 # Dependencies are installed from a copy; at runtime the repository is mounted over /workspace/app.
 COPY pyproject.toml ./
 COPY pseudolabel ./pseudolabel
-RUN pip install --no-cache-dir -e ".[encoder,dev]"
+RUN pip install --no-cache-dir -e ".[encoder,segment,dev]"
 
 CMD ["python", "-m", "pseudolabel.app.main"]

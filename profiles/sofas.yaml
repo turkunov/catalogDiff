@@ -1,4 +1,5 @@
 name: sofas
+object_prompt: sofa
 category_label: Диваны
 reasoning_language: ru
 input:

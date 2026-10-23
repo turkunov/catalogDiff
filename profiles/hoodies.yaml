@@ -1,4 +1,5 @@
 name: hoodies
+object_prompt: hoodie
 category_label: Hoodies and sweatshirts
 reasoning_language: en
 input:

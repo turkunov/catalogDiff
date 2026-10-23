@@ -60,3 +60,12 @@ def test_validate_broken_prompt_override():
     p.prompt_overrides["match"] = 'Return {"class": 1}'
     with pytest.raises(ProfileError, match="prompt_overrides.match"):
         parse_profile(dump_profile(p))
+
+
+def test_object_prompt_round_trips():
+    from pseudolabel.profiles import dump_profile, load_profile, parse_profile
+
+    p = load_profile(PROFILES / "sofas.yaml")
+    assert p.object_prompt == "sofa"
+    assert parse_profile(dump_profile(p)).object_prompt == "sofa"
+    assert load_profile(PROFILES / "cars.yaml").object_prompt == "car"

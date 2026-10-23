@@ -59,6 +59,7 @@ class Profile:
     legacy_label_column: str | None = None
     prompt_overrides: dict[str, str | None] = field(default_factory=lambda: {s: None for s in STEPS})
     examples: list[Example] = field(default_factory=list)
+    object_prompt: str | None = None  # English noun for text-prompted segmentation (SAM3), e.g. "sofa"
 
 
 def _to_dict(p: Profile) -> dict[str, Any]:
@@ -77,6 +78,7 @@ def _to_dict(p: Profile) -> dict[str, Any]:
         "generation": {s: dict(p.generation.get(s, {})) for s in STEPS},
         "thinking": p.thinking,
         "examples": [asdict(e) for e in p.examples],
+        "object_prompt": p.object_prompt,
     }
 
 
@@ -157,6 +159,7 @@ def _from_dict(d: Any) -> Profile:
         legacy_label_column=d.get("legacy_label_column"),
         prompt_overrides={s: overrides.get(s) for s in STEPS},
         examples=examples,
+        object_prompt=d.get("object_prompt"),
     )
 
 

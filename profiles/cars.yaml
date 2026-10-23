@@ -1,4 +1,5 @@
 name: cars
+object_prompt: car
 category_label: Passenger cars
 reasoning_language: en
 input:

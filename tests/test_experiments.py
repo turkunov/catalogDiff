@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from fakes import FakeVLM, route_by_prompt
-from helpers import make_jpeg, sofa_profile_with_root, small_rows
+from helpers import ROOT, make_jpeg, sofa_profile_with_root, small_rows
 
 
 def test_quadratic_kappa_perfect_and_reversed():
@@ -150,3 +150,27 @@ def test_run_variant_records_a_failing_pair_and_goes_on(tmp_path, tmp_store, mon
     m = run_variant(Variant(name="base", base_url="x", model="fake-vlm", concurrency=1), profile, universe, human,
                     tmp_store, tmp_path / "out", threshold=4, vlm=FakeVLM(route_by_prompt()))
     assert m["n"] == 3 and m["failed"] == 1
+
+
+def test_cli_segment_writes_image_map(tmp_path, monkeypatch):
+    import yaml
+
+    from pseudolabel import cli
+    from test_segment import FakeSegmenter
+
+    pairs, labels = _eval_files(tmp_path)
+    profiles = tmp_path / "profiles"
+    profiles.mkdir()
+    (profiles / "sofas.yaml").write_text((ROOT / "profiles" / "sofas.yaml").read_text().replace(
+        "image_root: /data/images_small", f"image_root: {tmp_path / 'images_small'}"))
+    cfg = tmp_path / "abl.yaml"
+    out_map = tmp_path / "seg" / "fake_map.json"
+    cfg.write_text(yaml.safe_dump({"profile": "sofas", "eval_pairs": str(pairs), "eval_labels": str(labels), "threshold": 4,
+                                   "out_dir": str(tmp_path / "out"), "variants": []}))
+    monkeypatch.setenv("PL_PROFILES_DIR", str(profiles))
+    monkeypatch.setenv("PL_WORK_DIR", str(tmp_path / "work"))
+    seen = {}
+    monkeypatch.setattr("pseudolabel.segment.make_segmenter", lambda m, prompt, device: seen.update(m=m, p=prompt) or FakeSegmenter())
+    assert cli.main(["segment", "--config", str(cfg), "--method", "sam3", "--out", str(out_map)]) == 0
+    mapping = json.loads(out_map.read_text())
+    assert seen == {"m": "sam3", "p": "sofa"} and len(mapping) == 5  # small_rows(): 2 Avito and 3 Ozon photos
