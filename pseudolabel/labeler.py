@@ -1,6 +1,7 @@
 """Three-step labeler: photo → visual attributes, text → missing parameters (both per item, cached), pair → class."""
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
@@ -94,12 +95,15 @@ class Labeler:
             return self._locks.setdefault(key, threading.Lock())
 
     def _gen(self, step: str) -> dict:
+        """Generation settings of a step; `thinking: false` in a step turns thinking off there (profile off = all off)."""
         step = "match" if step == "skeptic" else step  # the skeptic answers like the match step
-        return {**self.profile.generation.get(step, {}), "thinking": self.profile.thinking}
+        gen = dict(self.profile.generation.get(step, {}))
+        gen["thinking"] = bool(self.profile.thinking and gen.get("thinking", True))
+        return gen
 
-    def _json_mode(self) -> bool:
+    def _json_mode(self, step: str = "match") -> bool:
         # With JSON mode vLLM constrains output from the first token, which suppresses thinking.
-        return not self.profile.thinking
+        return not self._gen(step)["thinking"]
 
     def _call(self, step: str, content: list[dict], json_mode: bool) -> str:
         return self._call_detailed(step, content, json_mode).text
@@ -170,7 +174,7 @@ class Labeler:
                 start, raw = time.time(), ""
                 try:
                     raw = self._call("text_params", [_text_part(text_params_prompt(self.profile, item, missing))],
-                                     json_mode=self._json_mode())
+                                     json_mode=self._json_mode("text_params"))
                     params = find_json_object(raw, ("params",)).get("params")
                     if not isinstance(params, dict):
                         raise LabelerError("text_params step returned no params JSON")
@@ -217,12 +221,16 @@ class Labeler:
                                               probs=result.probs, confidence=result.confidence))
                 return result
         try:
-            if o.visual_step:
-                result.visual_a, result.visual_b = self.describe_item(a), self.describe_item(b)
-            if o.use_text and o.text_step:
-                result.params_a, result.params_b = self.complete_params(a), self.complete_params(b)
-            else:
-                result.params_a, result.params_b = self._raw_params(a), self._raw_params(b)
+            # Steps 1-2 of both listings are independent: run them at once.
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                visual = [pool.submit(self.describe_item, it) for it in (a, b)] if o.visual_step else []
+                params = [pool.submit(self.complete_params, it) for it in (a, b)] if o.use_text and o.text_step else []
+                if visual:
+                    result.visual_a, result.visual_b = (f.result() for f in visual)
+                if params:
+                    result.params_a, result.params_b = (f.result() for f in params)
+                else:
+                    result.params_a, result.params_b = self._raw_params(a), self._raw_params(b)
             prompt = match_prompt(self.profile, a, b, result.params_a, result.params_b, result.visual_a, result.visual_b,
                                   use_text=o.use_text, show_visual=o.visual_step, few_shot=bool(o.few_shot))
             out = self._call_detailed("match", self._match_content(a, b, prompt), json_mode=self._json_mode(),
@@ -259,7 +267,7 @@ class Labeler:
         start = time.time()
         try:
             out = self._call_detailed("skeptic", [_image_part(a.image), _image_part(b.image), _text_part(prompt)],
-                                      json_mode=self._json_mode())
+                                      json_mode=self._json_mode("text_params"))
             result.skeptic_raw = out.text
             result.completion_tokens = first.completion_tokens + (out.completion_tokens or 0)
             result.skeptic_cls = parse_class(find_json_object(out.text, CLASS_KEYS))

@@ -65,9 +65,11 @@ prompt_overrides:
   match: null
 generation:
   visual:
+    thinking: false
     temperature: 0
     max_tokens: 1024
   text_params:
+    thinking: false
     temperature: 0
     max_tokens: 1024
   match:

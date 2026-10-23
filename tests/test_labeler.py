@@ -260,3 +260,55 @@ def test_cached_pair_keeps_confidence_and_says_cached(labeler_with_fake, sofa_it
     again = lab.label_pair(sofa_item, sofa_item_b)
     assert not first.cached and again.cached
     assert again.cls == 4 and abs(again.confidence - 0.6) < 1e-9 and again.probs == first.probs
+
+
+def _by_marker(vlm, marker):
+    return [c for c in vlm.calls if [p["text"] for p in c["content"] if p["type"] == "text"][-1].startswith(marker)]
+
+
+def test_step_level_thinking_switch(labeler_with_fake, sofa_profile, sofa_item, sofa_item_b):
+    from pseudolabel.prompts import MATCH_MARKER, TEXT_MARKER, VISUAL_MARKER
+
+    sofa_profile.generation["visual"]["thinking"] = False
+    sofa_profile.generation["text_params"]["thinking"] = False
+    lab, vlm = labeler_with_fake(route_by_prompt(match='{"reasoning": "ok", "class": 4}'), profile=sofa_profile)
+    assert lab.label_pair(sofa_item, sofa_item_b).cls == 4
+    assert all(c["gen"]["thinking"] is False for c in _by_marker(vlm, VISUAL_MARKER))
+    text = _by_marker(vlm, TEXT_MARKER)
+    assert text and all(c["gen"]["thinking"] is False and c["json_mode"] is True for c in text)
+    match = _by_marker(vlm, MATCH_MARKER)[0]
+    assert match["gen"]["thinking"] is True and match["json_mode"] is False
+
+
+def test_profile_thinking_off_turns_off_every_step(labeler_with_fake, sofa_profile, sofa_item, sofa_item_b):
+    sofa_profile.thinking = False
+    sofa_profile.generation["match"]["thinking"] = True  # a step cannot switch thinking back on
+    lab, vlm = labeler_with_fake(route_by_prompt(match='{"reasoning": "ok", "class": 4}'), profile=sofa_profile)
+    lab.label_pair(sofa_item, sofa_item_b)
+    assert all(c["gen"]["thinking"] is False for c in vlm.calls)
+
+
+def test_item_steps_of_both_listings_run_in_parallel(labeler_with_fake, sofa_item, sofa_item_b):
+    import threading
+    import time
+
+    from fakes import prompt_text
+    from pseudolabel.prompts import MATCH_MARKER
+
+    state = {"now": 0, "max": 0}
+    lock = threading.Lock()
+    base = route_by_prompt(match='{"reasoning": "ok", "class": 4}')
+
+    def handler(content, gen, json_mode):
+        if not prompt_text(content).startswith(MATCH_MARKER):
+            with lock:
+                state["now"] += 1
+                state["max"] = max(state["max"], state["now"])
+            time.sleep(0.2)
+            with lock:
+                state["now"] -= 1
+        return base(content, gen, json_mode)
+
+    lab, _ = labeler_with_fake(handler)
+    assert lab.label_pair(sofa_item, sofa_item_b).cls == 4
+    assert state["max"] >= 2
