@@ -141,4 +141,6 @@ def export() -> str:
 if __name__ == "__main__":
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     db().close()
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "7870")))
+    # No authentication: listen on localhost unless HOST says otherwise (the container sets HOST=0.0.0.0
+    # and publishes the port on 127.0.0.1 only).
+    uvicorn.run(app, host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "7870")))

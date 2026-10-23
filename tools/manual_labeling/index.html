@@ -75,6 +75,7 @@
 </main>
 <script>
 let cur = 0, total = 0, status = [], current = null;
+let busy = false;  // true while a label is being saved or the next pair (with its photos) is loading
 const $ = (id) => document.getElementById(id);
 
 function md(text) {  // minimal **bold** + paragraphs
@@ -111,32 +112,52 @@ function renderGrid() {
 
 async function refreshStatus() { status = await (await fetch("/api/status")).json(); total = status.length; renderGrid(); }
 
+function imagesLoaded(timeoutMs = 4000) {
+  const imgs = [...document.querySelectorAll(".side img")];
+  const loaded = imgs.map(img => img.complete ? Promise.resolve() :
+    new Promise(res => { img.addEventListener("load", res, { once: true }); img.addEventListener("error", res, { once: true }); }));
+  return Promise.race([Promise.all(loaded), new Promise(res => setTimeout(res, timeoutMs))]);
+}
+
 async function go(i) {
   if (i < 0 || i >= total) return;
-  cur = i;
-  current = await (await fetch(`/api/pair/${i}`)).json();
-  $("pos").textContent = i + 1; $("total").textContent = current.total;
-  renderSide($("a"), "Объявление 1 · Avito", current.a);
-  renderSide($("b"), "Объявление 2 · Ozon", current.b);
-  $("comment").value = current.comment || "";
-  document.querySelectorAll(".cls").forEach(b => b.classList.toggle("on", +b.dataset.c === current.cls));
-  $("saved").textContent = "";
-  renderGrid();
-  window.scrollTo(0, 0);
+  busy = true;
+  try {
+    const next = await (await fetch(`/api/pair/${i}`)).json();
+    cur = i; current = next;  // switch only once the new pair is here
+    $("pos").textContent = i + 1; $("total").textContent = current.total;
+    renderSide($("a"), "Объявление 1 · Avito", current.a);
+    renderSide($("b"), "Объявление 2 · Ozon", current.b);
+    $("comment").value = current.comment || "";
+    document.querySelectorAll(".cls").forEach(b => b.classList.toggle("on", +b.dataset.c === current.cls));
+    $("saved").textContent = "";
+    renderGrid();
+    window.scrollTo(0, 0);
+    await imagesLoaded();
+  } finally {
+    busy = false;
+  }
 }
 
 async function save(cls, advance) {
-  const r = await fetch("/api/label", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ idx: cur, cls, comment: $("comment").value }) });
-  if (!r.ok) { $("saved").textContent = "Ошибка!"; return; }
-  status[cur].cls = cls; current.cls = cls;
-  document.querySelectorAll(".cls").forEach(b => b.classList.toggle("on", +b.dataset.c === cls));
-  $("saved").textContent = "Сохранено ✓";
-  renderGrid();
-  if (advance) nextFree();
+  if (busy || !current) return;  // ignore keys until the shown pair is fully loaded
+  busy = true;
+  const idx = current.idx;  // the pair on screen, not whatever is loading next
+  try {
+    const r = await fetch("/api/label", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ idx, cls, comment: $("comment").value }) });
+    if (!r.ok) { $("saved").textContent = "Ошибка!"; return; }
+    status[idx].cls = cls; current.cls = cls;
+    document.querySelectorAll(".cls").forEach(b => b.classList.toggle("on", +b.dataset.c === cls));
+    $("saved").textContent = "Сохранено ✓";
+    renderGrid();
+  } finally {
+    busy = false;
+  }
+  if (advance) await nextFree();
 }
 
-function nextFree() {
+async function nextFree() {
   for (let k = 1; k <= total; k++) { const i = (cur + k) % total; if (!status[i].cls) return go(i); }
   $("saved").textContent = "Все пары размечены 🎉";
 }
@@ -148,7 +169,7 @@ $("next").onclick = () => go(cur + 1);
 $("nextFree").onclick = nextFree;
 $("comment").addEventListener("keydown", e => { if (e.key === "Enter" && current.cls) save(current.cls, false); });
 document.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "INPUT" || busy) return;
   if (/^[1-5]$/.test(e.key)) save(+e.key, true);
   else if (e.key === "0") save(null, false);
   else if (e.key === "ArrowLeft") go(cur - 1);
