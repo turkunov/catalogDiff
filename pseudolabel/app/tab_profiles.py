@@ -50,15 +50,16 @@ def _preview(ctx: AppContext, p: Profile) -> tuple[str, str, str]:
 
 def build(ctx: AppContext) -> None:
     names = ctx.profile_names()
+    first = "sofas" if "sofas" in names else (names[0] if names else None)
     with gr.Row():
-        name = gr.Dropdown(names, value=names[0] if names else None, label="Profile")
+        name = gr.Dropdown(names, value=first, label="Profile")
         status = gr.Markdown()
     editor = gr.Code(language="yaml", label="Profile YAML", lines=30,
-                     value=load_profile_text(ctx, names[0]) if names else "")
+                     value=load_profile_text(ctx, first) if first else "")
     with gr.Row():
         save = gr.Button("Validate & save", variant="primary")
         preview = gr.Button("Preview prompts")
-    versions = gr.Dataframe(versions_table(ctx, names[0]) if names else None, label="Saved versions", interactive=False)
+    versions = gr.Dataframe(versions_table(ctx, first) if first else None, label="Saved versions", interactive=False)
     with gr.Accordion("Prompts", open=False):
         p_visual = gr.Textbox(label="Step 1 · visual attributes (photo only)", lines=10)
         p_text = gr.Textbox(label="Step 2 · parameters from text (text only)", lines=10)

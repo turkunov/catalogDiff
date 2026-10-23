@@ -241,3 +241,22 @@ def test_skeptic_skips_below_threshold(labeler_with_fake, sofa_item, sofa_item_b
     lab, vlm = _skeptic_lab(labeler_with_fake, '{"class": 1}')
     first = PairResult(3, "разные", "{}", None, 1.0)
     assert lab.skeptic(sofa_item, sofa_item_b, first, threshold=4) is first and vlm.calls == []
+
+
+def test_cached_pair_keeps_confidence_and_says_cached(labeler_with_fake, sofa_item, sofa_item_b):
+    import math
+
+    from fakes import prompt_text
+    from pseudolabel.prompts import MATCH_MARKER
+    from pseudolabel.vlm import Completion
+
+    tokens = ['{"', "class", '":', " ", "4", "}"]
+    lp = [{"token": t, "top_logprobs": [{"token": t, "logprob": 0.0}]} for t in tokens]
+    lp[4]["top_logprobs"] = [{"token": "4", "logprob": math.log(0.6)}, {"token": "5", "logprob": math.log(0.4)}]
+    base = route_by_prompt()
+    lab, _ = labeler_with_fake(lambda c, g, j: Completion('{"class": 4}', lp, 5) if prompt_text(c).startswith(MATCH_MARKER)
+                               else base(c, g, j))
+    first = lab.label_pair(sofa_item, sofa_item_b)
+    again = lab.label_pair(sofa_item, sofa_item_b)
+    assert not first.cached and again.cached
+    assert again.cls == 4 and abs(again.confidence - 0.6) < 1e-9 and again.probs == first.probs

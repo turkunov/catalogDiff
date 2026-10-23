@@ -66,6 +66,7 @@ class PairResult:
     skeptic_cls: int | None = None
     skeptic_raw: str = ""
     photo_dup_distance: int | None = None
+    cached: bool = False  # answer taken from the label store, not asked again
 
 
 def _image_part(src: str) -> dict:
@@ -199,7 +200,8 @@ class Labeler:
             cached = self.store.get_vlm_label(name, a.id, b.id, self.vlm.model, self.profile_version)
             if cached is not None:
                 return PairResult(cached.cls, cached.reasoning, cached.raw, None, cached.latency_s or 0.0,
-                                  self._cached(a, "visual") or {}, self._cached(b, "visual") or {})
+                                  self._cached(a, "visual") or {}, self._cached(b, "visual") or {},
+                                  probs=cached.probs, confidence=cached.confidence, cached=True)
         start = time.time()
         result = PairResult(None, "", "", None, 0.0)
         if o.photo_dup_max_distance is not None:

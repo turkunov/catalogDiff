@@ -73,3 +73,10 @@ def test_summary_shows_confidence_and_flags_low(app_ctx_fake_vlm):
     unsure = PairView({}, {}, {}, {}, "", 4, "positive", 3.0, None, confidence=0.55)
     assert "confidence 0.98" in _outputs(sure)[0] and "Low confidence" not in _outputs(sure)[0]
     assert "Low confidence" in _outputs(unsure)[0]
+
+
+def test_summary_says_when_the_answer_comes_from_cache():
+    from pseudolabel.app.tab_pair import PairView, _outputs
+
+    v = PairView({}, {}, {}, {}, "", 2, "negative", 57.9, None, confidence=1.0, cached=True)
+    assert "from cache" in _outputs(v)[0]

@@ -31,6 +31,7 @@ class PairView:
     image_a: str = ""  # the photos the labeler saw (cut-outs when segmentation is on)
     image_b: str = ""
     confidence: float | None = None  # probability of the chosen class
+    cached: bool = False
 
 
 def _view(r: PairResult, threshold: int | None, a: Item, b: Item) -> PairView:
@@ -41,7 +42,7 @@ def _view(r: PairResult, threshold: int | None, a: Item, b: Item) -> PairView:
     else:
         binary = "positive" if r.cls >= require_threshold(threshold) else "negative"
     return PairView(r.visual_a, r.visual_b, r.params_a, r.params_b, r.reasoning, r.cls, binary, round(r.latency_s, 1), r.error,
-                    a.image, b.image, r.confidence)
+                    a.image, b.image, r.confidence, r.cached)
 
 
 def _segmented(ctx: AppContext, item: Item, method: str, seg) -> Item:
@@ -93,7 +94,8 @@ def _threshold(value) -> int | None:
 def _outputs(v: PairView):
     cls = "—" if v.cls is None else str(v.cls)
     conf = "" if v.confidence is None else f" · confidence {v.confidence:.2f}"
-    summary = f"### Class: {cls} · {v.binary}{conf} · {v.latency_s}s" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
+    took = f"from cache (labeled in {v.latency_s}s)" if v.cached else f"{v.latency_s}s"
+    summary = f"### Class: {cls} · {v.binary}{conf} · {took}" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
     if v.confidence is not None and v.confidence < LOW_CONFIDENCE:
         summary += ("\n\n⚠️ **Low confidence** — no single class is clearly preferred "
                     f"(below {LOW_CONFIDENCE}); this pair should be checked by hand.")
