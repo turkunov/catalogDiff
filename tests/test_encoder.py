@@ -51,3 +51,30 @@ def test_embed_items_survives_broken_image(tmp_path, items_with_images):
     Path(items_with_images[1].image).unlink()
     emb = embed_items(LoadingEncoder(), items_with_images, tmp_path)
     assert emb.shape == (3, 2) and not emb[1].any() and emb[0].any()
+
+
+def _checkpoint(dir_, weights: bytes):
+    dir_.mkdir(parents=True)
+    (dir_ / "config.json").write_text('{"model_type": "siglip"}')
+    (dir_ / "model.safetensors").write_bytes(weights)
+    return dir_
+
+
+def test_fingerprint_depends_on_weight_contents(tmp_path):
+    from pseudolabel.encoder import _fingerprint
+
+    a = _checkpoint(tmp_path / "a", b"\x00" * 1024)
+    b = _checkpoint(tmp_path / "b", b"\x01" * 1024)  # same size, different weights
+    assert _fingerprint(a) != _fingerprint(b)
+    (tmp_path / "c").mkdir()
+    (tmp_path / "c" / "config.json").write_text('{"model_type": "siglip"}')
+    (tmp_path / "c" / "pytorch_model.bin").write_bytes(b"\x02" * 10)
+    assert _fingerprint(tmp_path / "c") != _fingerprint(a)
+
+
+def test_fingerprint_uses_hub_commit(tmp_path):
+    from pseudolabel.encoder import _fingerprint
+
+    commit = "fc05daec18b0a78c049392ed2e771dde82bdf654"
+    snap = _checkpoint(tmp_path / "models--google--siglip2" / "snapshots" / commit, b"\x00" * 8)
+    assert _fingerprint(snap) == commit[:12]

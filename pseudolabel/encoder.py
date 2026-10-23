@@ -27,9 +27,16 @@ def _checkpoint_dir(checkpoint: str) -> Path:
 
 
 def _fingerprint(directory: Path) -> str:
+    """Content identity of a checkpoint: the hub commit for hub snapshots, else a hash of config and weights."""
+    directory = Path(directory)
+    if directory.parent.name == "snapshots" and re.fullmatch(r"[0-9a-f]{40}", directory.name):
+        return directory.name[:12]
     h = hashlib.sha256((directory / "config.json").read_bytes())
-    for f in sorted(directory.glob("*.safetensors")):
-        h.update(f"{f.name}:{f.stat().st_size}".encode())
+    for f in sorted([*directory.glob("*.safetensors"), *directory.glob("*.bin")]):
+        h.update(f.name.encode())
+        with f.open("rb") as fh:
+            for block in iter(lambda: fh.read(1 << 24), b""):
+                h.update(block)
     return h.hexdigest()[:12]
 
 

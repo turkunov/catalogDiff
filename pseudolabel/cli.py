@@ -80,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 rows, shortfall = select_manual_test(universe, args.per_class, args.seed)
             store.set_manual_test(profile.name, rows)
-            store.queue_put("manual_test", profile.name, [(a, b) for a, b, _ in rows])
+            store.queue_replace(f"manual_test:{profile.name}", profile.name, [(a, b) for a, b, _ in rows])
             print(f"manual test: {len(rows)} pairs, shortfall {shortfall}")
         elif args.cmd == "import-human":
             print(f"imported {import_human_labels(store, profile.name, Path(args.csv))} human labels")

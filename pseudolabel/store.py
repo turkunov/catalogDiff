@@ -241,6 +241,13 @@ class Store:
         self._write_many("INSERT OR IGNORE INTO queues VALUES (?,?,?,?,?)",
                          [(queue, profile, a, b, start + i) for i, (a, b) in enumerate(pairs)])
 
+    def queue_replace(self, queue: str, profile: str, pairs: list[tuple[str, str]]) -> None:
+        with self._lock:
+            self._con.execute("DELETE FROM queues WHERE queue=?", (queue,))
+            self._con.executemany("INSERT OR IGNORE INTO queues VALUES (?,?,?,?,?)",
+                                  [(queue, profile, a, b, i) for i, (a, b) in enumerate(pairs)])
+            self._con.commit()
+
     def queue_pairs(self, queue: str) -> list[tuple[str, str]]:
         return [(r[0], r[1]) for r in self._read("SELECT a_id, b_id FROM queues WHERE queue=? ORDER BY position", (queue,))]
 

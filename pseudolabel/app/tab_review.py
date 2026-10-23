@@ -27,11 +27,17 @@ class ReviewCard:
     position: str
 
 
+def manual_test_queue(profile: str) -> str:
+    return f"manual_test:{profile}"
+
+
 def next_card(ctx: AppContext, queue: str) -> ReviewCard | None:
+    """First pair of the queue without a human label; pairs whose listings are unknown are skipped."""
     profile = ctx.store.queue_profile(queue)
-    pairs = ctx.store.queue_pairs(queue)
-    done = [p for p in pairs if ctx.store.latest_human_label(profile, *p) is not None]
-    todo = [p for p in pairs if p not in set(done)]
+    pairs = [(a, b) for a, b in ctx.store.queue_pairs(queue)
+             if ctx.store.get_item(profile, "a", a) and ctx.store.get_item(profile, "b", b)]
+    done = {p for p in pairs if ctx.store.latest_human_label(profile, *p) is not None}
+    todo = [p for p in pairs if p not in done]
     if not todo:
         return None
     a_id, b_id = todo[0]
@@ -55,7 +61,7 @@ def prepare_manual_test(ctx: AppContext, profile: str, pairs_path: str, per_clas
     else:
         rows, shortfall = select_manual_test(universe, int(per_class))
     ctx.store.set_manual_test(profile, rows)
-    ctx.store.queue_put("manual_test", profile, [(a, b) for a, b, _ in rows])
+    ctx.store.queue_replace(manual_test_queue(profile), profile, [(a, b) for a, b, _ in rows])
     return f"Manual test: {len(rows)} pairs" + (f", shortfall by class {shortfall}" if shortfall else "")
 
 
