@@ -34,6 +34,7 @@ THEME = gr.themes.Base(
     button_large_radius="10px",
     container_radius="14px",
     block_title_text_weight="600",
+    checkbox_border_width="1.5px",
     **_both(
         body_background_fill=BG,
         body_text_color=TEXT,
