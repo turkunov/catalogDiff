@@ -66,3 +66,17 @@ def fake_openai_client():
 @pytest.fixture
 def items_with_images(tmp_path):
     return [Item(str(i), "b", f"item {i}", "", {}, str(make_jpeg(tmp_path, name=f"it{i}.jpeg"))) for i in range(3)]
+
+
+@pytest.fixture
+def tiny_universe(tmp_path):
+    from helpers import build_tiny_universe
+
+    return build_tiny_universe(tmp_path)
+
+
+@pytest.fixture
+def tiny_embeddings(tiny_universe):
+    from helpers import embeddings_for, tiny_vectors
+
+    return embeddings_for(tiny_universe, tiny_vectors(tiny_universe))

@@ -53,3 +53,39 @@ def write_small_csv(tmp_path: Path, multiline: bool = False, d_categories: list[
     path = Path(tmp_path) / "pairs.csv"
     df.to_csv(path, index=False)
     return path
+
+
+def build_tiny_universe(tmp_path: Path, n_a: int = 4, n_b: int = 30, pairs_per_a: int = 6, seed: int = 0):
+    """Universe with real tiny images: n_a queries, n_b candidates, pairs_per_a file pairs per query."""
+    import random
+
+    from pseudolabel.data import Item, Universe
+
+    rng = random.Random(seed)
+    kp = {"material_obivki": "велюр", "forma": "прямой", "osnovnoy_cvet": "серый"}
+    items_a = {f"a{i}": Item(f"a{i}", "a", f"диван {i}", "описание", dict(kp),
+                             str(make_jpeg(tmp_path, size=(8, 8), color=(i * 40 % 255, 10, 10), name=f"a{i}.jpeg")))
+               for i in range(n_a)}
+    items_b = {f"b{j}": Item(f"b{j}", "b", f"диван модель {j}", "описание", dict(kp),
+                             str(make_jpeg(tmp_path, size=(8, 8), color=(10, j * 8 % 255, 10), name=f"b{j}.jpeg")))
+               for j in range(n_b)}
+    pairs = [(a, b) for a in items_a for b in rng.sample(sorted(items_b), pairs_per_a)]
+    return Universe(items_a, items_b, pairs, {p: rng.randint(1, 5) for p in pairs})
+
+
+def tiny_vectors(universe, dim: int = 8, seed: int = 0) -> dict:
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    items = list(universe.items_a.values()) + list(universe.items_b.values())
+    return {it.image: rng.normal(size=dim) for it in items}
+
+
+def embeddings_for(universe, vectors: dict):
+    import numpy as np
+
+    def stack(items):
+        m = np.stack([vectors[i.image] for i in items]).astype(np.float32)
+        return m / np.linalg.norm(m, axis=1, keepdims=True)
+
+    return stack(universe.items_a.values()), stack(universe.items_b.values())
