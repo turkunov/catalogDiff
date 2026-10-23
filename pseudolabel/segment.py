@@ -75,9 +75,10 @@ class BiRefNetSegmenter:
     def mask(self, img: Image.Image) -> np.ndarray | None:
         torch = self._torch
         x = np.asarray(img.convert("RGB").resize((self.SIZE, self.SIZE), Image.BILINEAR), dtype=np.float32) / 255.0
-        x = torch.from_numpy(((x - self.MEAN) / self.STD).transpose(2, 0, 1)).float().unsqueeze(0).to(self.device)
+        dtype = next(self.model.parameters()).dtype  # the checkpoint loads in float16
+        x = torch.from_numpy(((x - self.MEAN) / self.STD).transpose(2, 0, 1)).unsqueeze(0).to(self.device, dtype)
         with torch.no_grad():
-            pred = self.model(x)[-1].sigmoid()[0, 0].cpu().numpy()
+            pred = self.model(x)[-1].sigmoid()[0, 0].float().cpu().numpy()
         prob = np.asarray(Image.fromarray((pred * 255).astype(np.uint8)).resize(img.size, Image.BILINEAR)) / 255.0
         return prob > self.threshold
 
