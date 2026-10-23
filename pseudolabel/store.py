@@ -136,6 +136,11 @@ class Store:
                     (profile, side, item_id, kind, model, profile_version, json.dumps(result, ensure_ascii=False),
                      raw, error, latency_s, _now()))
 
+    def annotations(self, profile: str, side: str, item_id: str) -> list[dict]:
+        rows = self._read("SELECT kind, model, profile_version, result, error, latency_s, created_at FROM item_annotations"
+                          " WHERE profile=? AND side=? AND item_id=? ORDER BY created_at", (profile, side, item_id))
+        return [{**dict(r), "result": json.loads(r["result"] or "{}")} for r in rows]
+
     # labels
     def put_label(self, row: LabelRow) -> int:
         created = row.created_at or _now()
@@ -186,6 +191,13 @@ class Store:
     def set_iteration_pair_status(self, iteration_id: int, a_id: str, b_id: str, status: str) -> None:
         self._write("UPDATE iteration_pairs SET status=? WHERE iteration_id=? AND a_id=? AND b_id=?", (status, iteration_id, a_id, b_id))
 
+    def pair_origins(self, profile: str, a_id: str, b_id: str) -> pd.DataFrame:
+        with self._lock:
+            return pd.read_sql(
+                "SELECT ip.iteration_id, ip.origin, ip.rank, ip.cosine, ip.status FROM iteration_pairs ip"
+                " JOIN iterations it ON it.id = ip.iteration_id WHERE it.profile=? AND ip.a_id=? AND ip.b_id=?"
+                " ORDER BY ip.iteration_id", self._con, params=[profile, a_id, b_id])
+
     def finish_iteration(self, iteration_id: int, status: str, report: dict) -> None:
         self._write("UPDATE iterations SET status=?, report=?, finished_at=? WHERE id=?",
                     (status, json.dumps(report, ensure_ascii=False, default=str), _now(), iteration_id))
@@ -217,6 +229,10 @@ class Store:
 
     def queue_pairs(self, queue: str) -> list[tuple[str, str]]:
         return [(r[0], r[1]) for r in self._read("SELECT a_id, b_id FROM queues WHERE queue=? ORDER BY position", (queue,))]
+
+    def queue_profile(self, queue: str) -> str | None:
+        rows = self._read("SELECT profile FROM queues WHERE queue=? LIMIT 1", (queue,))
+        return rows[0][0] if rows else None
 
     def queues(self, profile: str) -> list[str]:
         return [r[0] for r in self._read("SELECT DISTINCT queue FROM queues WHERE profile=? ORDER BY queue", (profile,))]

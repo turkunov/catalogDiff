@@ -209,3 +209,22 @@ def app_ctx(tmp_path):
 @pytest.fixture
 def app_ctx_fake_vlm(tmp_path):
     return _app_ctx(tmp_path)
+
+
+@pytest.fixture
+def app_ctx_with_iteration(tmp_path, tiny_universe):
+    from fakes import FakeEncoder, route_by_prompt
+    from helpers import tiny_vectors
+    from pseudolabel.iteration import IterationConfig, finalize_iteration, plan_iteration, run_iteration
+
+    ctx = _app_ctx(tmp_path, route_by_prompt(match='{"reasoning": "r", "class": 2}'))
+    profile = ctx.profile("sofas")
+    encoder = FakeEncoder(tiny_vectors(tiny_universe))
+    cfg = IterationConfig(profile_name="sofas", pairs_path="tiny.csv", mode="pairs_file", labeler_model="fake-vlm",
+                          budget=8, positive_threshold=4)
+    it = plan_iteration(cfg, ctx.store, profile, tiny_universe, encoder, tmp_path / "cache")
+    run_iteration(it, ctx.store, ctx.labeler(profile, ctx.store.get_iteration(it)["profile_version"]))
+    finalize_iteration(it, ctx.store)
+    ctx.iteration_id = it
+    ctx.disagreement_queue = f"disagreements:{it}"
+    return ctx
