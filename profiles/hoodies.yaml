@@ -1,0 +1,80 @@
+name: hoodies
+object_prompt: hoodie
+category_label: Hoodies and sweatshirts
+reasoning_language: en
+input:
+  a:
+    id: q_item_id
+    title: q_title
+    description: q_description
+    key_params: q_key_params
+    image: "{q_image}"
+    category: null
+  b:
+    id: d_item_id
+    title: d_title
+    description: d_description
+    key_params: d_key_params
+    image: "{d_image}"
+    category: null
+  image_root: ""
+categories:
+  a: []
+  b: []
+legacy_label_column: null
+visual_attributes:
+  - key: color
+    description: main color of the garment
+  - key: print
+    description: print, logo or embroidery and where it is placed (or "none")
+  - key: hood
+    description: hood present and its shape (or "no hood")
+  - key: zipper
+    description: full zip, half zip or pullover
+  - key: cut
+    description: "fit and cut: regular, oversized, cropped, longline"
+key_params:
+  - key: brand
+    description: brand name
+  - key: color
+    description: main color
+  - key: material
+    description: fabric (cotton, fleece, polyester blend, ...)
+  - key: print
+    description: print or logo description
+class_definitions:
+  1: Not comparable. At least one listing is not a hoodie or sweatshirt, or the photo does not show the item.
+  2: >-
+    Different products. Another garment type, or clearly different key parameters: brand, color,
+    print or logo, zip versus pullover. The same model in another color is also 2.
+  3: >-
+    Similar only by parameters. Brand, color and print agree, but the photos show visibly different
+    models (cut, hood shape, pockets, print placement).
+  4: >-
+    Very similar. Parameters and look match, but small differences suggest another version (fabric,
+    details, labels).
+  5: Same model. Same brand, design, color and print; only angle, background or photo quality differ.
+match_rules: >-
+  Look at the photos first; text is a hint (brand, collection, material). Ignore the person wearing
+  the item, the background and props. Normalize brand names by case, spaces and transliteration
+  (Найк = Nike). Treat shades of one color as one color (navy = dark blue). Sizes are not a product
+  difference.
+prompt_overrides:
+  visual: null
+  text_params: null
+  match: null
+generation:
+  visual:
+    thinking: false
+    temperature: 0
+    max_tokens: 1024
+  text_params:
+    thinking: false
+    temperature: 0
+    max_tokens: 1024
+  match:
+    temperature: 0.1
+    top_p: 0.3
+    max_tokens: 1024
+thinking: true
+examples: []

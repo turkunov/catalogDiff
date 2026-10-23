@@ -8,3 +8,8 @@
 ***/hub/
 */.ipynb_checkpoints/
 *Trash*
+.venv/
+.env
+.superpowers/
+*.sqlite
+*.egg-info/

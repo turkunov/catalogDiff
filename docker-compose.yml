@@ -1,79 +1,84 @@
+# All ports are bound to 127.0.0.1: Jupyter and the app have no authentication. Use an SSH tunnel.
+# Machine-specific values (GPUs, paths, Grafana password) live in .env — see .env.example.
 services:
   vllm:
-    image: vllm/vllm-openai:v0.8.5
-    container_name: vllm-qwen3-vl
+    build: docker/vllm-cu129
+    image: catalogdiff/vllm-openai:v0.32.0-cu129-fix
+    container_name: pl-vllm
     restart: unless-stopped
-    gpus: all
+    gpus:
+      - driver: nvidia
+        device_ids: ["${VLLM_GPU:-7}"]
+        capabilities: [gpu]
     shm_size: "16g"
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     environment:
-      # Optional: set HF_TOKEN in your shell before running docker compose up.
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
-      # Recommended in vLLM docs to avoid CPU thread contention.
       - OMP_NUM_THREADS=1
+      # The cu129 build runs on driver 560 through CUDA forward compatibility.
+      - NVIDIA_DISABLE_REQUIRE=1
     volumes:
-      - ./models-cache:/root/.cache/huggingface
+      - ${MODELS_CACHE_DIR:-./models-cache}:/root/.cache/huggingface
     command: >
-      --model Qwen/Qwen2.5-VL-7B-Instruct
+      --model ${VLLM_MODEL:-Qwen/Qwen3.5-9B}
       --host 0.0.0.0
       --port 8000
       --trust-remote-code
-      --max-model-len 8192
-      --max-num-seqs 4
+      --max-model-len 16384
+      --max-num-seqs 16
       --gpu-memory-utilization 0.9
-      --enforce-eager
       --dtype bfloat16
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    image: catalogdiff/pseudolabel-app:latest
+    container_name: pl-app
+    restart: unless-stopped
+    depends_on:
+      - vllm
+    gpus:
+      - driver: nvidia
+        device_ids: ["${ENCODER_GPU:-0}"]
+        capabilities: [gpu]
+    ports:
+      - "127.0.0.1:8888:7860"
+      - "127.0.0.1:8891:9001"
+    environment:
+      - VLLM_BASE_URL=http://vllm:8000/v1
+      - VLLM_MODEL=${VLLM_MODEL:-Qwen/Qwen3.5-9B}
+      - PL_WORK_DIR=/data/pseudolabel
+      - PL_ENCODER_DEVICE=cuda
+      - PL_VLM_CONCURRENCY=4
+      - HF_TOKEN=${HF_TOKEN:-}
+      - GRADIO_ANALYTICS_ENABLED=False
+    volumes:
+      - .:/workspace/app
+      - ${DATA_DIR:?set DATA_DIR in .env}:/data
+      - ${MODELS_CACHE_DIR:-./models-cache}:/root/.cache/huggingface
+
   jupyter:
     build:
       context: ./jupyter
-    container_name: qwen3-vl-jupyter
+    container_name: pl-jupyter
     restart: unless-stopped
-    depends_on:
-      - vllm
     ports:
-      - "8889:8889"
+      - "127.0.0.1:8889:8889"
     volumes:
       - ./notebooks:/workspace/notebooks
+      - ${DATA_DIR:?set DATA_DIR in .env}:/data
     working_dir: /workspace/notebooks
     command: >
-      jupyter lab
-      --ip=0.0.0.0
-      --port=8889
-      --allow-root
-      --ServerApp.token=
-      --ServerApp.password=
-
-  gradio:
-    build:
-      context: ./jupyter
-    container_name: qwen3-vl-gradio
-    restart: unless-stopped
-    depends_on:
-      - vllm
-    ports:
-      - "8888:7860"
-      - "8891:9001"
-    environment:
-      - VLLM_BASE_URL=http://vllm:8000/v1
-      - VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
-      - VLLM_API_KEY=EMPTY
-      - POOL_NAMES=pool-a,pool-b,pool-c
-      - METRICS_PORT=9001
-      - GRADIO_ANALYTICS_ENABLED=False
-      - HF_HUB_DISABLE_TELEMETRY=1
-    volumes:
-      - ./notebooks:/workspace/notebooks
-    working_dir: /workspace/notebooks
-    command: >
-      python gradio_labeling_app.py
+      jupyter lab --ip=0.0.0.0 --port=8889 --allow-root --ServerApp.token= --ServerApp.password=
 
   prometheus:
     image: prom/prometheus:v2.55.1
-    container_name: qwen3-vl-prometheus
+    container_name: pl-prometheus
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     command:
@@ -82,15 +87,15 @@ services:
 
   grafana:
     image: grafana/grafana-oss:11.2.0
-    container_name: qwen3-vl-grafana
+    container_name: pl-grafana
     restart: unless-stopped
     depends_on:
       - prometheus
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
       - GF_USERS_DEFAULT_THEME=light
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

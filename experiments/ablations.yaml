@@ -1,0 +1,38 @@
+# Labeler ablations on the 160-pair eval set (spec: docs/superpowers/specs/2026-10-23-labeler-ablations-design.md).
+# Run one variant:  docker exec pl-app python -m pseudolabel ablate --config experiments/ablations.yaml --variant base
+# Compare:          docker exec pl-app python -m pseudolabel ablate-report --config experiments/ablations.yaml
+profile: sofas
+eval_pairs: /data/eval160/pairs160.csv
+eval_labels: /data/eval160/labels160.csv
+threshold: 4
+out_dir: /data/pseudolabel/ablations/2026-10-23
+db: /data/pseudolabel/ablations/labels.sqlite
+variants:
+  # Qwen3.5-9B, four servers (GPUs 0, 1, 2, 6)
+  - {name: base, base_url: "http://vllm-9b-0:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12}
+  - {name: base_repeat, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12}
+  - {name: photo_only, base_url: "http://vllm-9b-2:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     options: {use_text: false}}
+  - {name: one_step, base_url: "http://vllm-9b-6:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     options: {visual_step: false, text_step: false}}
+  - {name: no_visual_step, base_url: "http://vllm-9b-0:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     options: {visual_step: false}}
+  - {name: no_text_step, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     options: {text_step: false}}
+  - {name: no_thinking, base_url: "http://vllm-9b-2:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     profile_patch: {thinking: false}}
+  - {name: few_shot, base_url: "http://vllm-9b-6:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     options: {few_shot: true}}
+  - {name: sam3, base_url: "http://vllm-9b-0:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     image_map: /data/pseudolabel/ablations/segment/sam3_map.json}
+  - {name: birefnet, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12,
+     image_map: /data/pseudolabel/ablations/segment/birefnet_map.json}
+  - {name: skeptic, base_url: "http://vllm-9b-2:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 12, skeptic_of: base}
+  # base after steps 1-2 lost thinking and run in parallel (profile change of 6d59388); base itself ran before it
+  - {name: base_fast_steps, base_url: "http://vllm-9b-1:8000/v1", model: Qwen/Qwen3.5-9B, concurrency: 24}
+  # model comparison on the base configuration (base itself is Qwen3.5-9B)
+  - {name: m_qwen35_4b, base_url: "http://vllm-4b:8000/v1", model: Qwen/Qwen3.5-4B, concurrency: 16}
+  # m_qwen35_27b needs the main server started with VLLM_MODEL=Qwen/Qwen3.5-27B (the default is 9B)
+  - {name: m_qwen35_27b, base_url: "http://vllm:8000/v1", model: Qwen/Qwen3.5-27B, concurrency: 16}
+  - {name: m_qwen25vl_7b, base_url: "http://vllm-qwen25vl-7b:8000/v1", model: Qwen/Qwen2.5-VL-7B-Instruct, concurrency: 16}
+  - {name: m_internvl35_8b, base_url: "http://vllm-internvl35-8b:8000/v1", model: OpenGVLab/InternVL3_5-8B, concurrency: 16}
