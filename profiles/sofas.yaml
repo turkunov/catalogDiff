@@ -70,14 +70,14 @@ prompt_overrides:
 generation:
   visual:
     temperature: 0
-    max_tokens: 1024
+    max_tokens: 4096
   text_params:
     temperature: 0
-    max_tokens: 1024
+    max_tokens: 4096
   match:
     temperature: 0.1
     top_p: 0.3
-    max_tokens: 1024
+    max_tokens: 4096
 thinking: true
 examples:
 - name: same model (Kapriz)
