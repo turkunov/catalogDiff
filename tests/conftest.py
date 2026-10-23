@@ -1,6 +1,7 @@
 import pytest
 
-from helpers import PROFILES
+from helpers import PROFILES, make_jpeg
+from pseudolabel.data import Item
 from pseudolabel.profiles import load_profile
 
 
@@ -17,16 +18,46 @@ def tmp_store(tmp_path):
 
 
 @pytest.fixture
-def sofa_item():
-    from pseudolabel.data import Item
-
+def sofa_item(tmp_path):
     return Item("2272175750151", "a", "диван прямой раскладной роденго", "диван от производителя, механизм еврокнижка",
-                {"material_obivki": "велюр", "forma": None, "osnovnoy_cvet": "серый"}, "/nonexistent/a.jpeg")
+                {"material_obivki": "велюр", "forma": None, "osnovnoy_cvet": "серый"},
+                str(make_jpeg(tmp_path, name="a.jpeg")))
 
 
 @pytest.fixture
-def sofa_item_b():
-    from pseudolabel.data import Item
-
+def sofa_item_b(tmp_path):
     return Item("380288750116", "b", "диван кухонный роденго синий", "рогожка",
-                {"material_obivki": "рогожка", "forma": "прямой", "osnovnoy_cvet": "синий"}, "/nonexistent/b.jpeg")
+                {"material_obivki": "рогожка", "forma": "прямой", "osnovnoy_cvet": "синий"},
+                str(make_jpeg(tmp_path, color=(20, 40, 200), name="b.jpeg")))
+
+
+@pytest.fixture
+def sofa_item_full_params(tmp_path):
+    return Item("2300000000003", "a", "диван угловой", "угловой серый",
+                {"material_obivki": "рогожка", "forma": "угловой", "osnovnoy_cvet": "серый"},
+                str(make_jpeg(tmp_path, name="full.jpeg")))
+
+
+@pytest.fixture
+def missing_image_item(tmp_path):
+    return Item("300000000009", "b", "диван", "", {"material_obivki": "велюр", "forma": "прямой", "osnovnoy_cvet": "серый"},
+                str(tmp_path / "missing.jpeg"))
+
+
+@pytest.fixture
+def labeler_with_fake(tmp_store, sofa_profile):
+    from fakes import FakeVLM
+    from pseudolabel.labeler import Labeler
+
+    def make(handler, profile=None):
+        vlm = FakeVLM(handler)
+        return Labeler(vlm, tmp_store, profile or sofa_profile, 1, retry_sleep_s=0), vlm
+
+    return make
+
+
+@pytest.fixture
+def fake_openai_client():
+    from fakes import FakeOpenAIClient
+
+    return FakeOpenAIClient()
