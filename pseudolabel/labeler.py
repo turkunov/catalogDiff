@@ -210,7 +210,8 @@ class Labeler:
                 result.latency_s = time.time() - start
                 self.store.put_label(LabelRow(name, a.id, b.id, "vlm", 5, reasoning=result.reasoning,
                                               latency_s=result.latency_s, model=self.vlm.model,
-                                              profile_version=self.profile_version, gen_params={"photo_dup_distance": d}))
+                                              profile_version=self.profile_version, gen_params={"photo_dup_distance": d},
+                                              probs=result.probs, confidence=result.confidence))
                 return result
         try:
             if o.visual_step:
@@ -236,7 +237,8 @@ class Labeler:
         result.latency_s = time.time() - start
         self.store.put_label(LabelRow(name, a.id, b.id, "vlm", result.cls, reasoning=result.reasoning, raw=result.raw,
                                       error=result.error, latency_s=result.latency_s, model=self.vlm.model,
-                                      profile_version=self.profile_version, gen_params=self._gen("match")))
+                                      profile_version=self.profile_version, gen_params=self._gen("match"),
+                                      probs=result.probs, confidence=result.confidence))
         return result
 
     def skeptic(self, a: Item, b: Item, first: PairResult, threshold: int) -> PairResult:

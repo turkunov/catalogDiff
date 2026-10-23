@@ -8,14 +8,43 @@ import pandas as pd
 from pseudolabel.app.context import AppContext
 
 FILTERS = ("iteration_id", "origin", "cls", "model", "profile_version", "source", "disagreement")
+DEFAULT_CONFIDENCE_THRESHOLD = 0.7
+LOW_CONFIDENCE_QUEUE = "low_confidence:{profile}"
+
+
+def flag_low_confidence(df: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    """Marks VLM labels whose most likely class has probability below `threshold` (no strong confidence in one class)."""
+    df = df.copy()
+    conf = pd.to_numeric(df["confidence"], errors="coerce") if "confidence" in df else pd.Series(dtype=float, index=df.index)
+    df["low_confidence"] = (df["source"] == "vlm") & conf.notna() & (conf < threshold)
+    return df
 
 
 def search_labels(ctx: AppContext, profile: str, filters: dict) -> pd.DataFrame:
+    """Labels by filters; `confidence_threshold` flags low confidence, `low_confidence_below` keeps only those."""
     clean = {k: v for k, v in filters.items() if k in FILTERS and v not in (None, "", False)}
     for key in ("iteration_id", "cls", "profile_version"):
         if key in clean:
             clean[key] = int(clean[key])
-    return ctx.store.query_labels(profile, **clean)
+    only_low = filters.get("low_confidence_below")
+    threshold = only_low if only_low not in (None, "") else filters.get("confidence_threshold")
+    df = flag_low_confidence(ctx.store.query_labels(profile, **clean),
+                             float(threshold) if threshold not in (None, "") else DEFAULT_CONFIDENCE_THRESHOLD)
+    return df[df["low_confidence"]].reset_index(drop=True) if only_low not in (None, "") else df
+
+
+def queue_low_confidence(ctx: AppContext, profile: str, df: pd.DataFrame) -> int:
+    """Puts the flagged pairs of a search result into the manual review queue low_confidence:<profile>."""
+    pairs = list(dict.fromkeys(zip(df.loc[df["low_confidence"], "a_id"], df.loc[df["low_confidence"], "b_id"])))
+    ctx.store.queue_put(LOW_CONFIDENCE_QUEUE.format(profile=profile), profile, pairs)
+    return len(pairs)
+
+
+def _highlight(df: pd.DataFrame):
+    """Low-confidence rows on a yellow background in the table."""
+    if df.empty or "low_confidence" not in df:
+        return df
+    return df.style.apply(lambda r: ["background-color: #fff3bf" if r["low_confidence"] else "" for _ in r], axis=1)
 
 
 def pair_card(ctx: AppContext, profile: str, a_id: str, b_id: str) -> dict:
@@ -51,8 +80,13 @@ def build(ctx: AppContext) -> None:
         model = gr.Textbox(label="Model")
         version = gr.Number(label="Profile version", precision=0, value=None)
         disagreement = gr.Checkbox(label="Only queued disagreements")
+    with gr.Row():
+        conf_threshold = gr.Number(label="Low confidence below", value=DEFAULT_CONFIDENCE_THRESHOLD, minimum=0, maximum=1)
+        only_low = gr.Checkbox(label="Only low confidence")
         search = gr.Button("Search", variant="primary")
         export = gr.Button("Export selection")
+        to_review = gr.Button("Send low-confidence to manual review")
+    queued = gr.Markdown()
     table = gr.Dataframe(interactive=False, wrap=True)
     with gr.Row():
         a_id, b_id = gr.Textbox(label="Listing 1 id"), gr.Textbox(label="Listing 2 id")
@@ -63,15 +97,24 @@ def build(ctx: AppContext) -> None:
     exported = gr.File(label="Export")
     current = gr.State(pd.DataFrame())
 
-    def on_search(p, it, o, c, s, m, v, d):
+    def on_search(p, it, o, c, s, m, v, d, t, low):
         df = search_labels(ctx, p, {"iteration_id": it, "origin": o, "cls": c, "source": s, "model": m,
-                                    "profile_version": v, "disagreement": d})
-        return df, df
+                                    "profile_version": v, "disagreement": d, "confidence_threshold": t,
+                                    "low_confidence_below": t if low else None})
+        return _highlight(df), df
+
+    def on_queue(p, df):
+        if df is None or df.empty:
+            return "Search first."
+        n = queue_low_confidence(ctx, p, df)
+        return f"{n} low-confidence pairs are in the queue `{LOW_CONFIDENCE_QUEUE.format(profile=p)}` (Review tab)."
 
     def on_open(p, a, b):
         data = pair_card(ctx, p, a, b)
         return (data["a"] or {}).get("image"), (data["b"] or {}).get("image"), data
 
-    search.click(on_search, [profile, iteration, origin, cls, source, model, version, disagreement], [table, current])
+    search.click(on_search, [profile, iteration, origin, cls, source, model, version, disagreement, conf_threshold, only_low],
+                 [table, current])
+    to_review.click(on_queue, [profile, current], queued)
     export.click(lambda df: export_selection(ctx, df), current, exported)
     open_card.click(on_open, [profile, a_id, b_id], [a_img, b_img, card])

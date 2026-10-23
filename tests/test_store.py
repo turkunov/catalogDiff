@@ -115,3 +115,30 @@ def test_store_waits_for_a_locked_database(tmp_path):
     holder.execute("BEGIN IMMEDIATE")
     threading.Timer(0.6, holder.commit).start()
     Store(path, timeout_s=5).put_label(LabelRow("sofas", "a", "b", "human", 3))
+
+
+def test_label_probs_and_confidence_round_trip(tmp_path):
+    from pseudolabel.store import LabelRow, Store
+
+    s = Store(tmp_path / "l.sqlite")
+    s.put_label(LabelRow("sofas", "a", "b", "vlm", 4, model="m", profile_version=1, probs={4: 0.6, 5: 0.4}, confidence=0.6))
+    r = s.get_vlm_label("sofas", "a", "b", "m", 1)
+    assert r.probs == {4: 0.6, 5: 0.4} and r.confidence == 0.6
+    assert s.query_labels("sofas")["confidence"].tolist() == [0.6]
+
+
+def test_old_database_gets_confidence_columns(tmp_path):
+    import sqlite3
+
+    from pseudolabel.store import LabelRow, Store
+
+    path = tmp_path / "old.sqlite"
+    con = sqlite3.connect(path)
+    con.execute("CREATE TABLE labels (id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT, a_id TEXT, b_id TEXT, source TEXT,"
+                " cls INTEGER, reasoning TEXT, raw TEXT, error TEXT, latency_s REAL, comment TEXT, model TEXT,"
+                " profile_version INTEGER, gen_params TEXT, created_at TEXT)")
+    con.commit()
+    con.close()
+    s = Store(path)
+    s.put_label(LabelRow("sofas", "a", "b", "vlm", 2, confidence=0.9))
+    assert s.query_labels("sofas")["confidence"].tolist() == [0.9]

@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS item_annotations (
 CREATE TABLE IF NOT EXISTS labels (
     id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT, a_id TEXT, b_id TEXT, source TEXT, cls INTEGER,
     reasoning TEXT, raw TEXT, error TEXT, latency_s REAL, comment TEXT, model TEXT, profile_version INTEGER,
-    gen_params TEXT, created_at TEXT);
+    gen_params TEXT, created_at TEXT, probs TEXT, confidence REAL);
 CREATE INDEX IF NOT EXISTS labels_pair ON labels (profile, a_id, b_id, source);
 CREATE TABLE IF NOT EXISTS iterations (
     id INTEGER PRIMARY KEY AUTOINCREMENT, profile TEXT, profile_version INTEGER, config TEXT,
@@ -61,14 +61,19 @@ class LabelRow:
     profile_version: int | None = None
     gen_params: dict = field(default_factory=dict)
     created_at: str = ""
+    probs: dict[int, float] | None = None  # class distribution of a VLM answer
+    confidence: float | None = None
 
 
-_LABEL_COLS = "profile, a_id, b_id, source, cls, reasoning, raw, error, latency_s, comment, model, profile_version, gen_params, created_at"
+_LABEL_COLS = ("profile, a_id, b_id, source, cls, reasoning, raw, error, latency_s, comment, model, profile_version, gen_params,"
+               " created_at, probs, confidence")
+_ADDED_LABEL_COLUMNS = {"probs": "TEXT", "confidence": "REAL"}  # absent in stores created before them
 
 
 def _label_from_row(r: sqlite3.Row) -> LabelRow:
     d = dict(r)
     d["gen_params"] = json.loads(d["gen_params"] or "{}")
+    d["probs"] = {int(k): v for k, v in json.loads(d["probs"]).items()} if d.get("probs") else None
     return LabelRow(**{k: d[k] for k in _LABEL_COLS.split(", ")})
 
 
@@ -82,6 +87,11 @@ class Store:
         self._lock = threading.Lock()
         with self._lock:
             self._con.executescript(SCHEMA)
+            have = {r[1] for r in self._con.execute("PRAGMA table_info(labels)")}
+            for col, kind in _ADDED_LABEL_COLUMNS.items():
+                if col not in have:
+                    self._con.execute(f"ALTER TABLE labels ADD COLUMN {col} {kind}")
+            self._con.commit()
 
     def _write(self, sql: str, params: Iterable = ()) -> sqlite3.Cursor:
         with self._lock:
@@ -157,9 +167,10 @@ class Store:
     def put_label(self, row: LabelRow) -> int:
         created = row.created_at or _now()
         cur = self._write(
-            f"INSERT INTO labels ({_LABEL_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            f"INSERT INTO labels ({_LABEL_COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (row.profile, row.a_id, row.b_id, row.source, row.cls, row.reasoning, row.raw, row.error, row.latency_s,
-             row.comment, row.model, row.profile_version, json.dumps(row.gen_params), created))
+             row.comment, row.model, row.profile_version, json.dumps(row.gen_params), created,
+             json.dumps(row.probs) if row.probs else None, row.confidence))
         return cur.lastrowid
 
     def get_vlm_label(self, profile, a_id, b_id, model, profile_version) -> LabelRow | None:
@@ -269,7 +280,7 @@ class Store:
             " ON it2.id = ip2.iteration_id WHERE it2.profile = l.profile AND ip2.a_id = l.a_id AND ip2.b_id = l.b_id)")
         sql = (
             "SELECT l.a_id, l.b_id, l.source, l.cls, l.reasoning, l.model, l.profile_version, ip.origin, ip.rank,"
-            " ip.cosine, ip.iteration_id, l.error, l.comment, l.latency_s, l.created_at FROM labels l"
+            " ip.cosine, ip.iteration_id, l.error, l.comment, l.latency_s, l.created_at, l.confidence FROM labels l"
             f" LEFT JOIN iteration_pairs ip ON ip.a_id = l.a_id AND ip.b_id = l.b_id AND {ip_filter}"
             " WHERE l.profile = ?")
         params: list = ([iteration_id] if iteration_id is not None else []) + [profile]
