@@ -34,7 +34,6 @@ THEME = gr.themes.Base(
     button_large_radius="10px",
     container_radius="14px",
     block_title_text_weight="600",
-    checkbox_border_width="1.5px",
     **_both(
         body_background_fill=BG,
         body_text_color=TEXT,
@@ -110,6 +109,8 @@ footer {{ display: none !important; }}
 
 button[role="tab"] {{ font-weight: 600 !important; font-size: 14px !important; }}
 button[role="tab"][aria-selected="true"] {{ color: {ACCENT_LIGHT} !important; }}
+input[type="radio"]:not(:checked), input[type="checkbox"]:not(:checked) {{
+  border: 1.5px solid rgba(255,255,255,.28) !important; }}
 button.primary {{ font-weight: 700 !important; transition: transform .15s, box-shadow .15s !important; }}
 button.primary:hover {{ transform: translateY(-1px); }}
 button.primary:active {{ transform: scale(.98); }}
