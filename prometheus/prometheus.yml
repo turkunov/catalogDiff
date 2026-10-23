@@ -3,6 +3,6 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: "gradio_labeler"
+  - job_name: "pseudolabel_app"
     static_configs:
-      - targets: ["gradio:9001"]
+      - targets: ["app:9001"]

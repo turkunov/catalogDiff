@@ -50,7 +50,9 @@ class SigLIP2Encoder:
             batch = [load_image(src) for src in images[start:start + self.batch_size]]
             inputs = self.processor(images=batch, return_tensors="pt").to(self.device)
             with torch.no_grad():
-                feats = self.model.get_image_features(**inputs).float()
+                result = self.model.get_image_features(**inputs)
+            # transformers 5.x returns a model output with pooler_output; 4.x returns the tensor itself.
+            feats = (result if isinstance(result, torch.Tensor) else result.pooler_output).float()
             out.append(torch.nn.functional.normalize(feats, dim=-1).cpu().numpy())
         return np.concatenate(out).astype(np.float32) if out else np.zeros((0, 0), np.float32)
 

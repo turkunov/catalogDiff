@@ -1,50 +1,61 @@
-# VLM i2i autolabeler
+# Pseudo-labeling пар объявлений
 
-Проект для авторазметки айтемов с использованием пар изображений.
+Псевдоразметка пар объявлений по шкале 1–5 («насколько это один и тот же товар») для обучения моделей, работающих только по фото. Разметчик — VLM (по умолчанию `Qwen/Qwen3.5-27B` через vLLM) — смотрит и на фото, и на текст в три шага:
 
-## Сервисы
+1. **описание фото** — одно фото объявления → визуальные атрибуты (текст не подаётся), кэш на объявление;
+2. **параметры из текста** — заголовок и описание → недостающие ключевые параметры (картинка не подаётся), кэш на объявление;
+3. **сопоставление** — оба фото, тексты, параметры и атрибуты → рассуждение и класс 1–5.
 
-После запуска доступны:
-- Gradio demo: `http://localhost:8888`
-- JupyterLab: `http://localhost:8889`
-- Gradio demo (alternate local): `http://localhost:7860`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000` (логин/пароль: `admin` / `admin`)
-- Метрики Gradio (Prometheus exporter): `http://localhost:8891/metrics`
+Цикл итераций: картиночный энкодер (по умолчанию SigLIP2 `google/siglip2-so400m-patch14-384`) находит кандидатов → пары отбираются по слоям выдачи (1–10 / 11–100 / 101–1000 / случайные, плюс независимый источник по заголовкам) → разметка → экспорт обучающей выборки с бинарной меткой по явно заданному порогу. Обучение энкодера — вне проекта: новый чекпоинт подаётся в следующую итерацию.
 
-## Запуск
+Всё, что зависит от категории, лежит в профиле `profiles/<name>.yaml` (диваны, худи, машины). Дизайн: `docs/superpowers/specs/2026-10-23-pseudo-labeling-loop-design.md`.
+
+## Запуск (avi-gn-fsk44)
 
 ```bash
-docker compose up --build
+cp .env.example .env   # заполнить: пути к данным, GPU, пароль Grafana
+docker compose up -d --build
 ```
 
-## Batch-режим через CLI
+Сервисы (только на 127.0.0.1):
+
+| Сервис | Порт | Что это |
+|---|---|---|
+| app | 8888 | Gradio: Profiles, Pair labeling, Iterations, Manual review, Labels |
+| app metrics | 8891 | Prometheus-метрики приложения |
+| vllm | 8001 | OpenAI-совместимый API разметчика |
+| jupyter | 8889 | JupyterLab с `notebooks/` |
+| grafana | 3000 | дашборд «Pseudo-labeling Overview» |
+| prometheus | 9090 | |
+
+Доступ с ноутбука:
 
 ```bash
-IN_PATH="путь к входному .csv"
-OUT_PATH="путь к выходному .jsonl"
-CAT="название категории"
-KEY_PARAMS="ключевые параметры через запятую"
-nohup python run_qwen3_vl_batch.py \
-  --input-path "$IN_PATH" \
-  --output-path "$OUT_PATH" \
-  --category "$CAT" \
-  --key-params-list "$KEY_PARAMS" \
-  > out.log 2>&1 &
+ssh -N -L 8888:127.0.0.1:8888 -L 3000:127.0.0.1:3000 avi-gn-fsk44.msk.avito.ru
 ```
 
-## Gradio demo
+Образ vLLM собирается из `docker/vllm-cu129`: драйвер 560 поддерживает CUDA 12.6, официальный `v0.32.0` требует CUDA 13, а в `v0.32.0-cu129` лежит torchcodec под CUDA 13 — он заменён на CPU-сборку.
 
-- В каждом `pool`-табе можно отдельно загрузить датасет, передать individual pairs (JSON или single pair form), и запустить независимую задачу.
-- Поддерживается настройка `STRICT`/`MATCH` промптов на уровне таба.
-- Для каждого pool показываются live-метрики: модель, прогресс, скорость, ETA, success/failed.
-- Кнопка `Render labeled sample grid` строит и отображает случайную сетку размеченных пар через `plot_random_pairs_grid`.
+## Командная строка
 
-## Наблюдаемость
+```bash
+docker compose exec app python -m pseudolabel select-manual-test --profile sofas \
+  --pairs /data/train_test_with_images/combined_labeled_df_balanced_small.csv
+docker compose exec app python -m pseudolabel import-human --profile sofas --csv /data/manual_labels.csv
+docker compose exec app python -m pseudolabel run-manual-test --profile sofas \
+  --pairs /data/train_test_with_images/combined_labeled_df_balanced_small.csv --threshold 4
+docker compose exec app python -m pseudolabel iterate --config /data/pseudolabel/iteration.yaml
+docker compose exec app python -m pseudolabel export --profile sofas --threshold 4 --out /data/pseudolabel/exports
+```
 
-- Метрики приложения экспортируются на порту `9001` (`prometheus_client`).
-- Grafana дашборд `Qwen3-VL Labeling Overview` показывает aggregate и per-pool KPI:
-  - active pools
-  - throughput / error rate
-  - progress / ETA
-  - p95 latency
+`iteration.yaml` — поля `IterationConfig` (`pseudolabel/iteration.py`): `profile_name`, `pairs_path`, `mode` (`pairs_file` | `encoder_search`), `budget`, `positive_threshold`, `easy_negatives`, `stop` и др. Порог позитива не имеет значения по умолчанию.
+
+## Разработка
+
+```bash
+uv venv --python 3.11 .venv && uv pip install -e ".[dev]"
+.venv/bin/python -m pytest -q          # unit-тесты, без GPU и без vLLM
+docker compose exec app pytest -q -m slow   # смоук SigLIP2 на GPU
+```
+
+Наследие исходного проекта (батч-скрипт и ноутбуки) лежит в `notebooks/`; ручная разметка 200 пар — `tools/manual_labeling/`.
