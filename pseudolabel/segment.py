@@ -91,26 +91,33 @@ def make_segmenter(method: str, prompt: str, device: str = "cuda") -> Segmenter:
     raise ValueError(f"unknown segmentation method {method!r}: sam3 or birefnet")
 
 
-def segment_images(segmenter: Segmenter, paths: list[str], out_dir: Path) -> tuple[dict[str, str], dict]:
-    """Cut-out JPEG per readable photo (cached by path); returns {photo: cut-out} and counts."""
+def cut_out(segmenter: Segmenter, src: str, out_dir: Path) -> tuple[str, str]:
+    """Cut-out JPEG of one photo, cached by path: (path, "segmented" | "kept_original" | "cached").
+
+    Raises ImageError when the photo cannot be read.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    dst = out_dir / (hashlib.sha1(src.encode()).hexdigest()[:20] + ".jpeg")
+    if dst.exists():
+        return str(dst), "cached"
+    img = load_image(src)
+    out = apply_mask(img, segmenter.mask(img))
+    out.save(dst, "JPEG", quality=95)
+    return str(dst), "kept_original" if out is img else "segmented"
+
+
+def segment_images(segmenter: Segmenter, paths: list[str], out_dir: Path) -> tuple[dict[str, str], dict]:
+    """Cut-out JPEG per readable photo (cached by path); returns {photo: cut-out} and counts."""
     mapping: dict[str, str] = {}
     stats = {"segmented": 0, "kept_original": 0, "unreadable": 0, "cached": 0}
     for src in dict.fromkeys(paths):
-        dst = out_dir / (hashlib.sha1(src.encode()).hexdigest()[:20] + ".jpeg")
-        if dst.exists():
-            mapping[src] = str(dst)
-            stats["cached"] += 1
-            continue
         try:
-            img = load_image(src)
+            mapping[src], status = cut_out(segmenter, src, out_dir)
         except ImageError:
             stats["unreadable"] += 1
             continue
-        out = apply_mask(img, segmenter.mask(img))
-        stats["kept_original" if out is img else "segmented"] += 1
-        out.save(dst, "JPEG", quality=95)
-        mapping[src] = str(dst)
-    (out_dir / "stats.json").write_text(json.dumps(stats), encoding="utf-8")
+        stats[status] += 1
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    (Path(out_dir) / "stats.json").write_text(json.dumps(stats), encoding="utf-8")
     return mapping, stats

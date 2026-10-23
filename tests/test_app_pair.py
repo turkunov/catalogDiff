@@ -21,3 +21,40 @@ def test_label_custom_pairs_do_not_share_cache(app_ctx_fake_vlm, tmp_path):
     calls = len(app_ctx_fake_vlm.vlm.calls)
     label_custom(app_ctx_fake_vlm, "sofas", a1, b2, threshold=4)
     assert len(app_ctx_fake_vlm.vlm.calls) > calls
+
+
+def test_label_example_keeps_photos_without_segmentation(app_ctx_fake_vlm):
+    from pseudolabel.profiles import load_profile
+
+    ctx = app_ctx_fake_vlm
+    ex = load_profile(ctx.settings.profiles_dir / "sofas.yaml").examples[0]
+    v = label_example(ctx, "sofas", ex.name, threshold=4)
+    assert (v.image_a, v.image_b) == (ex.a["image"], ex.b["image"])
+
+
+def test_label_example_on_cut_out_photos(app_ctx_fake_vlm):
+    from PIL import Image
+
+    from test_segment import FakeSegmenter
+
+    ctx = app_ctx_fake_vlm
+    seg, seen = FakeSegmenter(), []
+    ctx.segmenter_factory = lambda method, prompt: seen.append((method, prompt)) or seg
+    plain = label_example(ctx, "sofas", ctx.first_example("sofas"), threshold=4)
+    calls = len(ctx.vlm.calls)
+    v = label_example(ctx, "sofas", ctx.first_example("sofas"), threshold=4, segmentation="birefnet")
+    assert seen == [("birefnet", "sofa")] and seg.calls == 2
+    assert "/segment/birefnet/" in v.image_a and Image.open(v.image_a).size != Image.open(plain.image_a).size
+    assert len(ctx.vlm.calls) > calls  # cut-outs are labeled anew, not served from the original photos' cache
+    assert v.cls == 5 and v.error is None
+
+
+def test_custom_pair_with_sam3(app_ctx_fake_vlm, tmp_path):
+    from test_segment import FakeSegmenter
+
+    ctx = app_ctx_fake_vlm
+    ctx.segmenter_factory = lambda method, prompt: FakeSegmenter()
+    a = {"title": "диван 1", "description": "", "key_params": {}, "image": str(make_jpeg(tmp_path, size=(80, 80), name="s1.jpeg"))}
+    b = {"title": "диван 2", "description": "", "key_params": {}, "image": str(make_jpeg(tmp_path, size=(80, 80), name="s2.jpeg"))}
+    v = label_custom(ctx, "sofas", a, b, threshold=4, segmentation="sam3")
+    assert "/segment/sam3/" in v.image_a and "/segment/sam3/" in v.image_b
