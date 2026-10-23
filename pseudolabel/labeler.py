@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from pseudolabel.data import Item
 from pseudolabel.images import to_data_url
-from pseudolabel.jsonparse import parse_first_json_object
+from pseudolabel.jsonparse import find_json_object
 from pseudolabel.profiles import Profile
 from pseudolabel.prompts import match_prompt, text_params_prompt, visual_prompt
 from pseudolabel.store import LabelRow, Store
@@ -17,13 +17,20 @@ class LabelerError(RuntimeError):
     pass
 
 
+CLASS_KEYS = ("class", "класс")
+
+
+def _class_value(payload: dict):
+    return next((v for k, v in payload.items() if str(k).lower() in CLASS_KEYS), None)
+
+
 def parse_class(payload: dict) -> int | None:
-    value = payload.get("class", payload.get("Класс"))
+    """Class 1..5 from `class`/`Класс` (any case); integral floats like 4.0 and numeric strings are accepted."""
     try:
-        cls = int(str(value).strip())
+        number = float(str(_class_value(payload)).strip())
     except (TypeError, ValueError):
         return None
-    return cls if 1 <= cls <= 5 else None
+    return int(number) if number.is_integer() and 1 <= number <= 5 else None
 
 
 @dataclass
@@ -62,6 +69,10 @@ class Labeler:
     def _gen(self, step: str) -> dict:
         return {**self.profile.generation.get(step, {}), "thinking": self.profile.thinking}
 
+    def _json_mode(self) -> bool:
+        # With JSON mode vLLM constrains output from the first token, which suppresses thinking.
+        return not self.profile.thinking
+
     def _call(self, step: str, content: list[dict], json_mode: bool) -> str:
         last: Exception | None = None
         for attempt in range(self.retries + 1):
@@ -97,7 +108,7 @@ class Labeler:
             start, raw = time.time(), ""
             try:
                 raw = self._call("visual", [_image_part(item.image), _text_part(visual_prompt(self.profile))], json_mode=False)
-                payload = parse_first_json_object(raw)
+                payload = find_json_object(raw, ("attributes", "error"))
                 if payload.get("error") == "image_unavailable":
                     result = {"image_unavailable": True}
                 elif isinstance(payload.get("attributes"), dict):
@@ -122,8 +133,9 @@ class Labeler:
             if extracted is None:
                 start, raw = time.time(), ""
                 try:
-                    raw = self._call("text_params", [_text_part(text_params_prompt(self.profile, item, missing))], json_mode=True)
-                    params = parse_first_json_object(raw).get("params")
+                    raw = self._call("text_params", [_text_part(text_params_prompt(self.profile, item, missing))],
+                                     json_mode=self._json_mode())
+                    params = find_json_object(raw, ("params",)).get("params")
                     if not isinstance(params, dict):
                         raise LabelerError("text_params step returned no params JSON")
                     extracted = {k: params.get(k) for k in missing}
@@ -149,12 +161,13 @@ class Labeler:
             result.visual_a, result.visual_b = self.describe_item(a), self.describe_item(b)
             result.params_a, result.params_b = self.complete_params(a), self.complete_params(b)
             prompt = match_prompt(self.profile, a, b, result.params_a, result.params_b, result.visual_a, result.visual_b)
-            result.raw = self._call("match", [_image_part(a.image), _image_part(b.image), _text_part(prompt)], json_mode=True)
-            payload = parse_first_json_object(result.raw)
+            result.raw = self._call("match", [_image_part(a.image), _image_part(b.image), _text_part(prompt)],
+                                    json_mode=self._json_mode())
+            payload = find_json_object(result.raw, CLASS_KEYS)
             result.reasoning = str(payload.get("reasoning", ""))
             result.cls = parse_class(payload)
             if result.cls is None:
-                result.error = f"no valid class in answer: {payload.get('class', payload.get('Класс'))!r}"
+                result.error = f"no valid class in answer: {_class_value(payload)!r}"
         except Exception as e:
             result.error = f"{type(e).__name__}: {e}"
         result.latency_s = time.time() - start

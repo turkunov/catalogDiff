@@ -33,7 +33,7 @@ def test_label_pair_stores_vlm_label(labeler_with_fake, sofa_item, sofa_item_b, 
     assert r.cls == 4 and r.error is None and r.visual_a == {"color": "серый"}
     assert tmp_store.get_vlm_label("sofas", sofa_item.id, sofa_item_b.id, "fake-vlm", 1).cls == 4
     match_call = vlm.calls[-1]
-    assert sum(p["type"] == "image_url" for p in match_call["content"]) == 2 and match_call["json_mode"]
+    assert sum(p["type"] == "image_url" for p in match_call["content"]) == 2 and match_call["json_mode"] is False
     assert match_call["gen"]["thinking"] is True and match_call["gen"]["temperature"] == 0.1
 
 
@@ -76,3 +76,20 @@ def test_on_call_reports_steps(tmp_store, sofa_profile, sofa_item, sofa_item_b):
                   on_call=lambda step, status, latency: seen.append((step, status)))
     lab.label_pair(sofa_item, sofa_item_b)
     assert ("visual", "ok") in seen and ("match", "ok") in seen and ("text_params", "ok") in seen
+
+
+def test_parse_class_floats_and_key_case():
+    assert parse_class({"class": 4.0}) == 4
+    assert parse_class({"class": "4.0"}) == 4
+    assert parse_class({"Class": 3}) == 3
+    assert parse_class({"class": 4.5}) is None
+
+
+def test_json_mode_only_without_thinking(labeler_with_fake, sofa_profile, sofa_item, sofa_item_b):
+    lab, vlm = labeler_with_fake(route_by_prompt(match='thinking {draft} </think> {"reasoning": "ok", "class": 4}'))
+    assert lab.label_pair(sofa_item, sofa_item_b).cls == 4
+    assert vlm.calls[-1]["json_mode"] is False
+    sofa_profile.thinking = False
+    lab2, vlm2 = labeler_with_fake(route_by_prompt(match='{"reasoning": "ok", "class": 4}'), profile=sofa_profile)
+    lab2.label_pair(sofa_item, sofa_item_b, use_cache=False)
+    assert vlm2.calls[-1]["json_mode"] is True

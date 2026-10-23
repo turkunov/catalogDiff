@@ -16,3 +16,23 @@ def test_python_literals():
 
 def test_garbage_returns_empty():
     assert parse_first_json_object("no json here") == {}
+
+
+def test_braces_in_prose_before_json():
+    from pseudolabel.jsonparse import find_json_object
+
+    text = 'Attributes {color} differ. {"reasoning": "r", "class": 2}'
+    assert find_json_object(text, ("class",)) == {"reasoning": "r", "class": 2}
+
+
+def test_two_objects_takes_last_with_key():
+    from pseudolabel.jsonparse import find_json_object
+
+    text = '{"class": 3} draft... final: {"reasoning": "ok", "class": 4}'
+    assert find_json_object(text, ("class",))["class"] == 4
+
+
+def test_find_json_object_key_case_insensitive():
+    from pseudolabel.jsonparse import find_json_object
+
+    assert find_json_object('{"Class": 5}', ("class",)) == {"Class": 5}
