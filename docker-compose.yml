@@ -26,7 +26,7 @@ services:
       --port 8000
       --trust-remote-code
       --max-model-len 8192
-      --max-num-seqs 4
+      --max-num-seqs 16
       --gpu-memory-utilization 0.9
       --enforce-eager
       --dtype bfloat16
