@@ -70,3 +70,28 @@ def test_resume_uses_planned_profile_version(app_ctx_with_iteration):
     wait(it, timeout=30)
     new_prompts = [prompt_text(c["content"]) for c in ctx.vlm.calls[before:]]
     assert new_prompts and not any("EDITED" in p for p in new_prompts)
+
+
+def test_background_failure_is_recorded(app_ctx_with_iteration, monkeypatch):
+    import pseudolabel.app.tab_iterations as ti
+
+    ctx = app_ctx_with_iteration
+    def boom(*a, **k):
+        raise RuntimeError("vLLM is down")
+    monkeypatch.setattr(ti, "run_iteration", boom)
+    ti.resume_iteration(ctx, ctx.iteration_id)
+    ti.wait(ctx.iteration_id, timeout=10)
+    it = ctx.store.get_iteration(ctx.iteration_id)
+    assert it["status"] == "failed" and "vLLM is down" in it["report"]["error"]
+
+
+def test_running_without_thread_shows_interrupted(app_ctx_with_iteration):
+    ctx = app_ctx_with_iteration
+    ctx.store.set_iteration_status(ctx.iteration_id, "running")
+    t = iterations_table(ctx, "sofas")
+    assert t.iloc[0]["status"] == "interrupted"
+
+
+def test_iterations_table_eta_column(app_ctx_with_iteration):
+    t = iterations_table(app_ctx_with_iteration, "sofas")
+    assert "eta_min" in t.columns and t.iloc[0]["eta_min"] is None

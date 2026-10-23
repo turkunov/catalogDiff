@@ -136,3 +136,13 @@ def test_run_rejects_labeler_with_other_model(env):
     env.vlm.model = "another-model"
     with pytest.raises(ValueError, match="model"):
         run_iteration(it, env.store, env.labeler)
+
+
+def test_plan_survives_broken_image_with_loading_encoder(env):
+    from pathlib import Path
+
+    from test_encoder import LoadingEncoder
+
+    Path(next(iter(env.universe.items_b.values())).image).unlink()
+    it = plan_iteration(env.cfg(budget=6), env.store, env.profile, env.universe, LoadingEncoder(), env.tmp)
+    assert env.store.get_iteration(it)["config"]["unembeddable_items"] == ["b:b0"]

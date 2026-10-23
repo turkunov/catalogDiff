@@ -127,10 +127,13 @@ def select_pairs(pools: dict[str, list[Candidate]], budget: int, shares: dict[st
 
 
 def sample_easy_negatives(universe: Universe, emb_a: np.ndarray, emb_b: np.ndarray, n: int,
-                          exclude_pairs: set, seed: int) -> list[Candidate]:
+                          exclude_pairs: set, seed: int, exclude_a: set[str] | None = None) -> list[Candidate]:
     """Random pairs ranked beyond the top 1000 (beyond the top half for catalogs smaller than 2000)."""
     rng = random.Random(seed)
-    ids_a, ids_b = list(universe.items_a), list(universe.items_b)
+    ids_a = [a for a in universe.items_a if a not in (exclude_a or set())]
+    ids_b = list(universe.items_b)
+    if not ids_a or not ids_b:
+        return []
     threshold = min(TOP_K, len(ids_b) // 2)
     out: list[Candidate] = []
     taken = set(exclude_pairs)

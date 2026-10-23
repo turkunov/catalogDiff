@@ -209,6 +209,9 @@ class Store:
                 " JOIN iterations it ON it.id = ip.iteration_id WHERE it.profile=? AND ip.a_id=? AND ip.b_id=?"
                 " ORDER BY ip.iteration_id", self._con, params=[profile, a_id, b_id])
 
+    def set_iteration_status(self, iteration_id: int, status: str) -> None:
+        self._write("UPDATE iterations SET status=? WHERE id=?", (status, iteration_id))
+
     def finish_iteration(self, iteration_id: int, status: str, report: dict) -> None:
         self._write("UPDATE iterations SET status=?, report=?, finished_at=? WHERE id=?",
                     (status, json.dumps(report, ensure_ascii=False, default=str), _now(), iteration_id))

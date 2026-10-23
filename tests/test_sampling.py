@@ -83,3 +83,8 @@ def test_easy_negatives_are_low_ranked(tiny_universe, tiny_embeddings):
     negs = sample_easy_negatives(tiny_universe, *tiny_embeddings, n=3, exclude_pairs=set(), seed=0)
     assert len(negs) == 3 and all(c.origin == "easy_negative" for c in negs)
     assert all(c.rank > 15 for c in negs)  # bottom half of 30 candidates
+
+
+def test_easy_negatives_respect_excluded_queries(tiny_universe, tiny_embeddings):
+    negs = sample_easy_negatives(tiny_universe, *tiny_embeddings, n=10, exclude_pairs=set(), seed=0, exclude_a={"a0", "a1"})
+    assert negs and not {c.a_id for c in negs} & {"a0", "a1"}

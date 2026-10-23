@@ -1,6 +1,7 @@
 """Image encoders (image tower only) and an on-disk embedding cache."""
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Protocol
@@ -8,7 +9,7 @@ from typing import Protocol
 import numpy as np
 
 from pseudolabel.data import Item
-from pseudolabel.images import load_image
+from pseudolabel.images import ImageError, load_image
 
 
 class ImageEncoder(Protocol):
@@ -61,8 +62,39 @@ def _cache_path(cache_dir: Path, version: str) -> Path:
     return Path(cache_dir) / (re.sub(r"[^A-Za-z0-9._@-]+", "_", version) + ".npz")
 
 
+CHUNK = 256
+
+
+def _embed_safely(encoder: ImageEncoder, images: list[str]) -> dict[str, np.ndarray]:
+    """Embed in chunks; a chunk with an unreadable image is retried image by image and that image is skipped."""
+    out: dict[str, np.ndarray] = {}
+    for start in range(0, len(images), CHUNK):
+        chunk = images[start:start + CHUNK]
+        try:
+            out.update(zip(chunk, encoder.embed(chunk)))
+        except ImageError:
+            for image in chunk:
+                try:
+                    out[image] = encoder.embed([image])[0]
+                except ImageError:
+                    continue
+    return out
+
+
+def _save_cache(path: Path, cache: dict[str, np.ndarray]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    keys = list(cache)
+    tmp = path.with_name(path.name + ".tmp.npz")
+    np.savez(tmp, keys=np.array(json.dumps(keys)), vectors=np.stack([cache[k] for k in keys]))
+    os.replace(tmp, path)
+
+
 def embed_items(encoder: ImageEncoder, items: list[Item], cache_dir: Path) -> np.ndarray:
-    """Embeddings for `items` in order; only images missing from the cache are encoded."""
+    """Embeddings for `items` in order; only uncached images are encoded.
+
+    Items whose image cannot be read get a zero vector (never cached), so one broken image does not stop
+    the iteration: its pairs are still labeled and the labeler records the image error.
+    """
     path = _cache_path(cache_dir, encoder.version)
     cache: dict[str, np.ndarray] = {}
     if path.exists():
@@ -70,8 +102,11 @@ def embed_items(encoder: ImageEncoder, items: list[Item], cache_dir: Path) -> np
             cache = dict(zip(json.loads(str(data["keys"])), data["vectors"]))
     missing = list(dict.fromkeys(i.image for i in items if i.image not in cache))
     if missing:
-        cache.update(zip(missing, encoder.embed(missing)))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        keys = list(cache)
-        np.savez(path, keys=np.array(json.dumps(keys)), vectors=np.stack([cache[k] for k in keys]))
-    return np.stack([cache[i.image] for i in items]).astype(np.float32)
+        new = _embed_safely(encoder, missing)
+        if new:
+            cache.update(new)
+            _save_cache(path, cache)
+    if not cache:
+        raise ImageError("no image of the universe could be read")
+    zeros = np.zeros_like(next(iter(cache.values())), dtype=np.float32)
+    return np.stack([cache.get(i.image, zeros) for i in items]).astype(np.float32)

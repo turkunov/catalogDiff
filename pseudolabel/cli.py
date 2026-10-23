@@ -43,11 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _labeler(settings, store, profile, version):
+def _labeler(settings, store, profile, version, model: str | None = None):
     from pseudolabel.labeler import Labeler
     from pseudolabel.vlm import OpenAIVLM
 
-    vlm = OpenAIVLM(settings.vllm_base_url, settings.vllm_model, settings.vllm_api_key)
+    vlm = OpenAIVLM(settings.vllm_base_url, model or settings.vllm_model, settings.vllm_api_key)
     return Labeler(vlm, store, profile, version)
 
 
@@ -65,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
             encoder = SigLIP2Encoder(cfg.encoder_checkpoint, device=settings.encoder_device)
             it = plan_iteration(cfg, store, profile, load_universe(profile, Path(cfg.pairs_path)), encoder,
                                 settings.work_dir / "embeddings")
-            labeler = _labeler(settings, store, profile, store.get_iteration(it)["profile_version"])
+            version = store.get_iteration(it)["profile_version"]
+            labeler = _labeler(settings, store, store.profile_at(profile.name, version), version, cfg.labeler_model)
             run_iteration(it, store, labeler, settings.vlm_concurrency,
                           progress=lambda d, t: print(f"\r{d}/{t}", end="", file=sys.stderr))
             print(json.dumps({"iteration": it, **finalize_iteration(it, store)}, ensure_ascii=False, indent=2))

@@ -22,3 +22,13 @@ def test_cli_select_and_import(capsys, tmp_settings_env, tmp_path):
     h.write_text("a_id,b_id,class\n2272175750151,380288750116,5\n")
     assert main(["import-human", "--profile", "sofas", "--csv", str(h)]) == 0
     assert "imported 1" in capsys.readouterr().out
+
+
+def test_cli_labeler_uses_config_model(tmp_settings_env, sofa_profile):
+    from pseudolabel.cli import _labeler
+    from pseudolabel.settings import load_settings
+    from pseudolabel.store import Store
+
+    settings = load_settings()
+    lab = _labeler(settings, Store(settings.db_path), sofa_profile, 1, model="other/model")
+    assert lab.vlm.model == "other/model"

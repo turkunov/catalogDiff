@@ -32,3 +32,22 @@ def test_siglip2_smoke(tmp_path):
     assert e.shape[0] == 2 and np.allclose(np.linalg.norm(e, axis=1), 1, atol=1e-4)
     assert float(e[0] @ e[1]) == pytest.approx(1.0, abs=1e-4)
     assert enc.version.startswith("google/siglip2-base-patch16-224@")
+
+
+class LoadingEncoder:
+    """Opens every image like SigLIP2 does; one unreadable image raises ImageError for its batch."""
+
+    version = "loading@1"
+
+    def embed(self, images):
+        from pseudolabel.images import load_image
+
+        return np.stack([np.asarray(load_image(i).resize((2, 1))).reshape(-1)[:2] + 1.0 for i in images]).astype(np.float32)
+
+
+def test_embed_items_survives_broken_image(tmp_path, items_with_images):
+    from pathlib import Path
+
+    Path(items_with_images[1].image).unlink()
+    emb = embed_items(LoadingEncoder(), items_with_images, tmp_path)
+    assert emb.shape == (3, 2) and not emb[1].any() and emb[0].any()

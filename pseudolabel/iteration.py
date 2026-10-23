@@ -65,11 +65,15 @@ def plan_iteration(cfg: IterationConfig, store: Store, profile: Profile, univers
             for c in chosen]
     if cfg.easy_negatives:
         taken = labeled | {(c.a_id, c.b_id) for c in chosen}
-        negatives = sample_easy_negatives(universe, emb_a, emb_b, cfg.easy_negatives, taken, cfg.seed)
+        negatives = sample_easy_negatives(universe, emb_a, emb_b, cfg.easy_negatives, taken, cfg.seed,
+                                          exclude_a=set(cfg.exclude_a_ids))
         n_check = math.ceil(len(negatives) * cfg.easy_negative_check_share)
         rows += [dict(a_id=c.a_id, b_id=c.b_id, origin=c.origin, rank=c.rank, cosine=c.cosine,
                       selected_for_vlm=i < n_check) for i, c in enumerate(negatives)]
-    iteration_id = store.create_iteration(profile.name, version, asdict(cfg), encoder.version)
+    unembeddable = [f"a:{i}" for i, v in zip(universe.items_a, emb_a) if not v.any()] + \
+                   [f"b:{i}" for i, v in zip(universe.items_b, emb_b) if not v.any()]
+    config = {**asdict(cfg), "unembeddable_items": unembeddable}
+    iteration_id = store.create_iteration(profile.name, version, config, encoder.version)
     store.add_iteration_pairs(iteration_id, rows)
     return iteration_id
 

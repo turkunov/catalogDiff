@@ -1,5 +1,7 @@
 """Iterations tab: configure and start an iteration (runs in the background), resume, report table, export."""
+import logging
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 import gradio as gr
@@ -33,6 +35,14 @@ def _config(ctx: AppContext, form: dict) -> IterationConfig:
 
 
 def _run(ctx: AppContext, iteration_id: int) -> None:
+    try:
+        _label_and_finalize(ctx, iteration_id)
+    except Exception as e:  # a background thread has no caller: record the failure where the UI shows it
+        logging.exception("iteration %s failed", iteration_id)
+        ctx.store.finish_iteration(iteration_id, "failed", {"error": f"{type(e).__name__}: {e}"})
+
+
+def _label_and_finalize(ctx: AppContext, iteration_id: int) -> None:
     store = ctx.store
     iteration = store.get_iteration(iteration_id)
     # Label with the profile exactly as planned, even if the YAML file was edited since.
@@ -61,10 +71,15 @@ def start_iteration(ctx: AppContext, form: dict) -> int:
     return iteration_id
 
 
+_LAUNCH_LOCK = threading.Lock()
+
+
 def resume_iteration(ctx: AppContext, iteration_id: int) -> None:
-    if iteration_id in _JOBS and _JOBS[iteration_id].is_alive():
-        return
-    _launch(ctx, iteration_id)
+    with _LAUNCH_LOCK:  # two quick Resume clicks must not start two labelers on the same pairs
+        if _alive(iteration_id):
+            return
+        ctx.store.set_iteration_status(iteration_id, "running")
+        _launch(ctx, iteration_id)
 
 
 def wait(iteration_id: int, timeout: float | None = None) -> None:
@@ -72,24 +87,39 @@ def wait(iteration_id: int, timeout: float | None = None) -> None:
         _JOBS[iteration_id].join(timeout)
 
 
+def _alive(iteration_id: int) -> bool:
+    return iteration_id in _JOBS and _JOBS[iteration_id].is_alive()
+
+
+def _eta_minutes(created_at: str, processed: int, pending: int) -> float | None:
+    if not processed or not pending:
+        return None
+    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(created_at)).total_seconds()
+    return round(elapsed / processed * pending / 60, 1)
+
+
 def iterations_table(ctx: AppContext, profile: str) -> pd.DataFrame:
     rows = []
     for it in ctx.store.list_iterations(profile).itertuples():
-        full = ctx.store.get_iteration(int(it.id))
-        pairs = ctx.store.iteration_pairs(int(it.id))
+        iteration_id = int(it.id)
+        full = ctx.store.get_iteration(iteration_id)
+        pairs = ctx.store.iteration_pairs(iteration_id)
         selected = pairs[pairs["selected_for_vlm"] == 1]["status"]
+        done, error, pending = (int((selected == s).sum()) for s in ("done", "error", "pending"))
         stats = ((full["report"] or {}).get("origin_stats") or {}).values()
         stop = (full["report"] or {}).get("stop") or {}
+        running = it.status == "running" and _alive(iteration_id)
         rows.append({
-            "id": int(it.id), "status": it.status, "mode": full["config"].get("mode"), "encoder": it.encoder_version,
-            "budget": full["config"].get("budget"), "done": int((selected == "done").sum()),
-            "error": int((selected == "error").sum()), "pending": int((selected == "pending").sum()),
+            "id": iteration_id, "status": "interrupted" if it.status == "running" and not running else it.status,
+            "mode": full["config"].get("mode"), "encoder": it.encoder_version, "budget": full["config"].get("budget"),
+            "done": done, "error": error, "pending": pending,
+            "eta_min": _eta_minutes(it.created_at, done + error, pending) if running else None,
             "positives": sum(s.get("positives", 0) for s in stats),
             "disagreements": sum(s.get("disagreements", 0) for s in stats),
             "stop_triggered": stop.get("triggered"),
         })
-    return pd.DataFrame(rows, columns=["id", "status", "mode", "encoder", "budget", "done", "error", "pending",
-                                       "positives", "disagreements", "stop_triggered"])
+    return pd.DataFrame(rows, columns=["id", "status", "mode", "encoder", "budget", "done", "error", "pending", "eta_min",
+                                       "positives", "disagreements", "stop_triggered"]).astype({"eta_min": object})
 
 
 def parse_weights(text: str) -> dict[int, float]:
