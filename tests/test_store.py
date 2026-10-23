@@ -93,3 +93,25 @@ def test_profile_at_returns_stored_version(tmp_store, sofa_profile):
     tmp_store.register_profile_version(sofa_profile)
     assert profile_hash(tmp_store.profile_at("sofas", v1)) == original
     assert tmp_store.profile_hash_at("sofas", v1) == original
+
+
+def test_store_waits_for_a_locked_database(tmp_path):
+    import sqlite3
+    import threading
+    import time
+
+    import pytest
+
+    from pseudolabel.store import LabelRow, Store
+
+    path = tmp_path / "labels.sqlite"
+    Store(path)
+    holder = sqlite3.connect(path)
+    holder.execute("BEGIN IMMEDIATE")
+    threading.Timer(0.6, holder.commit).start()
+    with pytest.raises(sqlite3.OperationalError):
+        Store(path, timeout_s=0.1).put_label(LabelRow("sofas", "a", "b", "human", 3))
+    time.sleep(0.7)
+    holder.execute("BEGIN IMMEDIATE")
+    threading.Timer(0.6, holder.commit).start()
+    Store(path, timeout_s=5).put_label(LabelRow("sofas", "a", "b", "human", 3))

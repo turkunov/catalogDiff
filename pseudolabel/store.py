@@ -73,9 +73,10 @@ def _label_from_row(r: sqlite3.Row) -> LabelRow:
 
 
 class Store:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, timeout_s: float = 60.0):
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self._con = sqlite3.connect(path, check_same_thread=False)
+        # Several processes (app, CLI runs, ablation variants) write here; wait for a lock instead of failing.
+        self._con = sqlite3.connect(path, check_same_thread=False, timeout=timeout_s)
         self._con.row_factory = sqlite3.Row
         self._con.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.Lock()

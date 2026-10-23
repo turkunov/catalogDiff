@@ -129,3 +129,24 @@ def test_cli_ablate_report_writes_markdown(tmp_path, tmp_store, monkeypatch):
     monkeypatch.setenv("PL_WORK_DIR", str(tmp_path / "work"))
     assert main(["ablate-report", "--config", str(cfg)]) == 0
     assert "| base |" in (tmp_path / "out" / "report.md").read_text()
+
+
+def test_run_variant_records_a_failing_pair_and_goes_on(tmp_path, tmp_store, monkeypatch):
+    from pseudolabel.experiments import Variant, load_eval, run_variant
+
+    profile = sofa_profile_with_root(tmp_path)
+    pairs, labels = _eval_files(tmp_path)
+    universe, human = load_eval(pairs, labels, profile)
+    real_put = tmp_store.put_label
+    calls = []
+
+    def flaky_put(row):
+        calls.append(row)
+        if len(calls) == 1:
+            raise RuntimeError("database is locked")
+        return real_put(row)
+
+    monkeypatch.setattr(tmp_store, "put_label", flaky_put)
+    m = run_variant(Variant(name="base", base_url="x", model="fake-vlm", concurrency=1), profile, universe, human,
+                    tmp_store, tmp_path / "out", threshold=4, vlm=FakeVLM(route_by_prompt()))
+    assert m["n"] == 3 and m["failed"] == 1

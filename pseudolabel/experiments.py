@@ -126,10 +126,13 @@ def run_variant(v: Variant, profile: Profile, universe: Universe, human: dict, s
 
     def one(pair: tuple[str, str]) -> None:
         a, b = remap(universe.items_a[pair[0]]), remap(universe.items_b[pair[1]])
-        if v.skeptic_of:
-            r = labeler.skeptic(a, b, _first_result(source[pair]), threshold)
-        else:
-            r = labeler.label_pair(a, b, use_cache=False)
+        try:
+            if v.skeptic_of:
+                r = labeler.skeptic(a, b, _first_result(source[pair]), threshold)
+            else:
+                r = labeler.label_pair(a, b, use_cache=False)
+        except Exception as e:  # e.g. the store: record the pair as failed and keep going
+            r = PairResult(None, "", "", f"{type(e).__name__}: {e}", 0.0)
         row = {"a_id": pair[0], "b_id": pair[1], "human": human[pair], "vlm": r.cls, "probs": r.probs,
                "confidence": r.confidence, "latency_s": r.latency_s, "completion_tokens": r.completion_tokens,
                "error": r.error, "reasoning": r.reasoning, "visual_a": r.visual_a, "visual_b": r.visual_b,
