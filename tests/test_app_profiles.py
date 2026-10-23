@@ -51,3 +51,12 @@ def test_versions_table(app_ctx):
     save_profile(app_ctx, "sofas", load_profile_text(app_ctx, "sofas"))
     t = versions_table(app_ctx, "sofas")
     assert list(t["version"]) == [1] and "created_at" in t.columns
+
+
+def test_app_has_dark_theme_and_catalogdiff_hero(app_ctx):
+    from pseudolabel.app.theme import THEME
+
+    demo = build_app(app_ctx)
+    html = [b.value for b in demo.blocks.values() if isinstance(b, gr.HTML)]
+    assert any("CatalogDiff" in h and "Pseudo-labeling of listing pairs" in h for h in html)
+    assert demo.theme is THEME and THEME.body_background_fill_dark == THEME.body_background_fill == "#0e0e10"

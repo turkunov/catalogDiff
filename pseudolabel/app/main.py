@@ -5,12 +5,13 @@ import gradio as gr
 from prometheus_client import start_http_server
 
 from pseudolabel.app import tab_iterations, tab_pair, tab_profiles
+from pseudolabel.app.theme import CSS, FORCE_DARK_JS, THEME, hero
 from pseudolabel.app.context import AppContext, make_context
 from pseudolabel.settings import load_settings
 
 def build_app(ctx: AppContext) -> gr.Blocks:
-    with gr.Blocks(title="Pseudo-labeling") as demo:
-        gr.Markdown("# Pseudo-labeling of listing pairs")
+    with gr.Blocks(title="CatalogDiff", theme=THEME, css=CSS, js=FORCE_DARK_JS) as demo:
+        gr.HTML(hero("Pseudo-labeling of listing pairs"), padding=False)
         with gr.Tabs():
             with gr.Tab("Profiles"):
                 tab_profiles.build(ctx)
