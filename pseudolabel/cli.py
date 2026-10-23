@@ -40,6 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iteration", type=int, nargs="*")
     p.add_argument("--include-legacy", action="store_true")
     p.add_argument("--out", required=True)
+    p = sub.add_parser("ablate", help="run one labeler variant of an ablation config over its eval set")
+    p.add_argument("--config", required=True)
+    p.add_argument("--variant", required=True)
+    p.add_argument("--limit", type=int, help="only the first N eval pairs (smoke test)")
+    p = sub.add_parser("ablate-report", help="compare the variants of an ablation config; writes report.md")
+    p.add_argument("--config", required=True)
+    p.add_argument("--baseline", default="base")
     return parser
 
 
@@ -51,9 +58,30 @@ def _labeler(settings, store, profile, version, model: str | None = None):
     return Labeler(vlm, store, profile, version)
 
 
+def _ablate(args, settings) -> int:
+    from pseudolabel.experiments import load_config, load_eval, report, run_variant, stderr_progress
+
+    cfg, variants = load_config(Path(args.config))
+    out_dir = Path(cfg["out_dir"])
+    if args.cmd == "ablate-report":
+        text = report(out_dir, args.baseline, cfg["threshold"], order=list(variants))
+        (out_dir / "report.md").write_text(text, encoding="utf-8")
+        print(text)
+        return 0
+    profile = load_profile(settings.profiles_dir / f"{cfg['profile']}.yaml")
+    universe, human = load_eval(Path(cfg["eval_pairs"]), Path(cfg["eval_labels"]), profile)
+    store = Store(Path(cfg["db"])) if cfg.get("db") else Store(settings.db_path)
+    m = run_variant(variants[args.variant], profile, universe, human, store, out_dir, cfg["threshold"],
+                    limit=args.limit, progress=stderr_progress(args.variant))
+    print(json.dumps({k: v for k, v in m.items() if k != "confusion"}, ensure_ascii=False, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = load_settings()
+    if args.cmd in ("ablate", "ablate-report"):
+        return _ablate(args, settings)
     store = Store(settings.db_path)
     try:
         if args.cmd == "iterate":
