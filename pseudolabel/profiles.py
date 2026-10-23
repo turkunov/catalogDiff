@@ -183,8 +183,13 @@ def dump_profile(p: Profile) -> str:
     return yaml.safe_dump(_to_dict(p), allow_unicode=True, sort_keys=False, width=100)
 
 
+# Fields that do not change what the labeler is asked; left out so older versions keep their hash.
+_UNHASHED = ("object_prompt",)
+
+
 def profile_hash(p: Profile) -> str:
-    canonical = json.dumps(_to_dict(p), sort_keys=True, ensure_ascii=False)
+    d = {k: v for k, v in _to_dict(p).items() if k not in _UNHASHED}
+    canonical = json.dumps(d, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 

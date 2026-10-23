@@ -43,11 +43,23 @@ def test_label_pair_same_photo_skips_vlm(labeler_with_fake, tmp_path, tmp_store)
     lab, vlm = labeler_with_fake(lambda c, g, j: "{}", options=LabelerOptions(photo_dup_max_distance=6, photo_dup_check_share=0))
     r = lab.label_pair(a, b)
     assert r.cls == 5 and r.photo_dup_distance == 0 and vlm.calls == [] and r.confidence == 1.0
-    stored = tmp_store.get_vlm_label("sofas", "1", "2", "fake-vlm", 1)
-    assert stored.cls == 5 and "same photo" in stored.reasoning and stored.gen_params["photo_dup_distance"] == 0
+    assert tmp_store.get_vlm_label("sofas", "1", "2", "fake-vlm", 1) is None  # not a VLM answer
+    stored = tmp_store.query_labels("sofas", source="photo_dup")
+    assert stored["cls"].tolist() == [5] and "same photo" in stored["reasoning"].iloc[0]
 
 
-def test_same_photo_check_share_still_asks_vlm(labeler_with_fake, tmp_path):
+def test_shortcut_label_is_not_reused_when_the_shortcut_is_off(labeler_with_fake, tmp_path):
+    from fakes import route_by_prompt
+    from pseudolabel.labeler import LabelerOptions
+
+    a, b = _twin_items(tmp_path)
+    lab, _ = labeler_with_fake(lambda c, g, j: "{}", options=LabelerOptions(photo_dup_max_distance=6, photo_dup_check_share=0))
+    lab.label_pair(a, b)
+    plain, vlm = labeler_with_fake(route_by_prompt(match='{"reasoning": "ok", "class": 2}'))
+    assert plain.label_pair(a, b).cls == 2 and vlm.calls
+
+
+def test_same_photo_check_share_still_asks_vlm(labeler_with_fake, tmp_path, tmp_store):
     from fakes import route_by_prompt
     from pseudolabel.labeler import LabelerOptions
 
@@ -56,6 +68,8 @@ def test_same_photo_check_share_still_asks_vlm(labeler_with_fake, tmp_path):
                                  options=LabelerOptions(photo_dup_max_distance=6, photo_dup_check_share=1.0))
     r = lab.label_pair(a, b)
     assert r.cls == 4 and r.photo_dup_distance == 0 and vlm.calls
+    # check pairs keep the distance, so the shortcut's precision can be measured from the store
+    assert tmp_store.get_vlm_label("sofas", "1", "2", "fake-vlm", 1).gen_params["photo_dup_distance"] == 0
 
 
 def test_iteration_config_turns_on_the_shortcut():
@@ -67,3 +81,17 @@ def test_iteration_config_turns_on_the_shortcut():
     o = labeler_options(asdict(cfg))  # iterations keep their config as a dict
     assert o.photo_dup_max_distance == 5 and o.photo_dup_check_share == 0.05
     assert labeler_options({"profile_name": "sofas"}).photo_dup_max_distance is None  # configs saved before the option
+
+
+def test_export_marks_shortcut_labels(app_ctx_with_iteration):
+    from pseudolabel.export import build_training_set
+    from pseudolabel.store import LabelRow
+
+    ctx = app_ctx_with_iteration
+    it = ctx.store.get_iteration(ctx.iteration_id)
+    pair = ctx.store.iteration_pairs(ctx.iteration_id).query("selected_for_vlm == 1 and origin != 'easy_negative'").iloc[0]
+    ctx.store.put_label(LabelRow("sofas", pair.a_id, pair.b_id, "photo_dup", 5, model="fake-vlm",
+                                 profile_version=it["profile_version"], gen_params={"photo_dup_distance": 0}))
+    df = build_training_set(ctx.store, "sofas", 4)
+    row = df[(df.a_id == pair.a_id) & (df.b_id == pair.b_id)].iloc[0]
+    assert row.label_source == "photo_dup" and row.raw_class == 5

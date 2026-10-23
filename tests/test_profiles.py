@@ -69,3 +69,17 @@ def test_object_prompt_round_trips():
     assert p.object_prompt == "sofa"
     assert parse_profile(dump_profile(p)).object_prompt == "sofa"
     assert load_profile(PROFILES / "cars.yaml").object_prompt == "car"
+
+
+def test_object_prompt_does_not_change_the_profile_hash():
+    """Profile versions registered before object_prompt existed keep their hash (Resume, label caches)."""
+    import hashlib
+    import json
+    from dataclasses import replace
+
+    from pseudolabel.profiles import _to_dict, load_profile, profile_hash
+
+    p = load_profile(PROFILES / "sofas.yaml")
+    old_format = {k: v for k, v in _to_dict(p).items() if k != "object_prompt"}
+    old_hash = hashlib.sha256(json.dumps(old_format, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    assert profile_hash(p) == old_hash == profile_hash(replace(p, object_prompt=None))

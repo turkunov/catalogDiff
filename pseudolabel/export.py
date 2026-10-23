@@ -30,9 +30,10 @@ def build_training_set(store: Store, profile: str, threshold: int | None, class_
     rows: dict[tuple[str, str], dict] = {}
     for it in iterations.itertuples():
         config = store.get_iteration(it.id)["config"]
-        vlm = labels[(labels["source"] == "vlm") & (labels["profile_version"] == it.profile_version)]
+        vlm = labels[labels["source"].isin(["vlm", "photo_dup"]) & (labels["profile_version"] == it.profile_version)]
         if config.get("labeler_model"):
             vlm = vlm[vlm["model"] == config["labeler_model"]]
+        vlm_source = {(r.a_id, r.b_id): r.source for r in vlm.drop_duplicates(["a_id", "b_id"], keep="last").itertuples()}
         vlm = _latest(vlm)
         for p in store.iteration_pairs(it.id).itertuples():
             key = (p.a_id, p.b_id)
@@ -43,7 +44,7 @@ def build_training_set(store: Store, profile: str, threshold: int | None, class_
             elif p.origin == "easy_negative":
                 rows[key] = {**base, "raw_class": None, "label_source": "auto_negative"}
             elif key in vlm:
-                rows[key] = {**base, "raw_class": vlm[key], "label_source": "vlm"}
+                rows[key] = {**base, "raw_class": vlm[key], "label_source": vlm_source[key]}
     if include_legacy:
         for key, cls in _latest(labels[labels["source"] == "legacy"]).items():
             rows.setdefault(key, {"origin": "legacy", "iteration_id": None, "encoder_version": None,

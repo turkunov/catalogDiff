@@ -119,7 +119,10 @@ def run_iteration(iteration_id: int, store: Store, labeler: Labeler, concurrency
 
 
 def _labels_for(store: Store, profile: str, pairs: pd.DataFrame, model: str, version: int) -> pd.DataFrame:
-    vlm = store.query_labels(profile, source="vlm", model=model, profile_version=version)
+    """The iteration's labels: VLM answers and same-photo shortcuts of its model and profile version."""
+    parts = [store.query_labels(profile, source=src, model=model, profile_version=version) for src in ("vlm", "photo_dup")]
+    parts = [df for df in parts if not df.empty] or parts[:1]
+    vlm = pd.concat(parts).sort_values("created_at", kind="stable")
     vlm = vlm[vlm["error"].isna()].drop_duplicates(["a_id", "b_id"], keep="last")[["a_id", "b_id", "cls"]]
     return pairs.merge(vlm, on=["a_id", "b_id"], how="left")
 

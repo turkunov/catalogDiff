@@ -19,6 +19,7 @@ class LabelerError(RuntimeError):
 
 
 CLASS_KEYS = ("class", "класс")
+PHOTO_DUP_SOURCE = "photo_dup"  # label source of the same-photo shortcut (class 5 without the VLM)
 
 
 def _class_value(payload: dict):
@@ -208,7 +209,7 @@ class Labeler:
                 result.cls, result.probs, result.confidence = 5, {5: 1.0}, 1.0
                 result.reasoning = f"same photo: perceptual hash distance {d}"
                 result.latency_s = time.time() - start
-                self.store.put_label(LabelRow(name, a.id, b.id, "vlm", 5, reasoning=result.reasoning,
+                self.store.put_label(LabelRow(name, a.id, b.id, PHOTO_DUP_SOURCE, 5, reasoning=result.reasoning,
                                               latency_s=result.latency_s, model=self.vlm.model,
                                               profile_version=self.profile_version, gen_params={"photo_dup_distance": d},
                                               probs=result.probs, confidence=result.confidence))
@@ -235,9 +236,12 @@ class Labeler:
         except Exception as e:
             result.error = f"{type(e).__name__}: {e}"
         result.latency_s = time.time() - start
+        gen_params = self._gen("match")
+        if result.photo_dup_distance is not None:  # a shortcut check pair: keep the distance to measure the shortcut
+            gen_params["photo_dup_distance"] = result.photo_dup_distance
         self.store.put_label(LabelRow(name, a.id, b.id, "vlm", result.cls, reasoning=result.reasoning, raw=result.raw,
                                       error=result.error, latency_s=result.latency_s, model=self.vlm.model,
-                                      profile_version=self.profile_version, gen_params=self._gen("match"),
+                                      profile_version=self.profile_version, gen_params=gen_params,
                                       probs=result.probs, confidence=result.confidence))
         return result
 

@@ -58,3 +58,9 @@ def test_custom_pair_with_sam3(app_ctx_fake_vlm, tmp_path):
     b = {"title": "диван 2", "description": "", "key_params": {}, "image": str(make_jpeg(tmp_path, size=(80, 80), name="s2.jpeg"))}
     v = label_custom(ctx, "sofas", a, b, threshold=4, segmentation="sam3")
     assert "/segment/sam3/" in v.image_a and "/segment/sam3/" in v.image_b
+
+
+def test_threshold_zero_or_empty_means_not_set():
+    from pseudolabel.app.tab_pair import _threshold
+
+    assert _threshold(0) is None and _threshold(None) is None and _threshold("") is None and _threshold(4) == 4

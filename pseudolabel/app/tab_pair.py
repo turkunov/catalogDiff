@@ -84,7 +84,8 @@ def label_custom(ctx: AppContext, profile_name: str, a: dict, b: dict, threshold
 
 
 def _threshold(value) -> int | None:
-    return None if value in (None, "") else int(value)
+    """An empty field may arrive as 0 from Gradio; classes start at 1, so 0 means "not set"."""
+    return None if value in (None, "", 0) else int(value)
 
 
 def _outputs(v: PairView):
@@ -96,10 +97,11 @@ def _outputs(v: PairView):
 def build(ctx: AppContext) -> None:
     names = ctx.profile_names()
     with gr.Row():
-        profile = gr.Dropdown(names, value=names[0] if names else None, label="Profile")
+        first = "sofas" if "sofas" in names else (names[0] if names else None)
+        profile = gr.Dropdown(names, value=first, label="Profile")
         threshold = gr.Number(label="Positive threshold (empty = not set)", precision=0, value=None)
     segmentation = gr.Radio(SEGMENTATION, value="none", label="Object segmentation before labeling")
-    initial = [e.name for e in ctx.profile(names[0]).examples] if names else []
+    initial = [e.name for e in ctx.profile(first).examples] if first else []
     with gr.Row():
         example = gr.Dropdown(initial, value=initial[0] if initial else None, label="Example")
         run_example = gr.Button("Label example", variant="primary")
