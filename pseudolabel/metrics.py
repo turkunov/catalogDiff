@@ -55,7 +55,7 @@ def origin_stats(df: pd.DataFrame, threshold: int | None) -> dict[str, dict]:
         cls = part["cls"]
         s = {
             "n": int(len(part)),
-            "class_counts": {k: int((cls == k).sum()) for k in range(1, 6)},
+            "class_counts": {str(k): int((cls == k).sum()) for k in range(1, 6)},  # str keys survive JSON
             "errors": int(cls.isna().sum()),
         }
         if threshold is not None:

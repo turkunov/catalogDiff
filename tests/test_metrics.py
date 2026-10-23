@@ -35,7 +35,7 @@ def test_disagreement_definition():
 def test_origin_stats():
     df = pd.DataFrame({"origin": ["top_1_10", "top_1_10", "top_11_100", "top_11_100"], "cls": [2, 5, 4, None]})
     s = origin_stats(df, threshold=4)
-    assert s["top_1_10"]["n"] == 2 and s["top_1_10"]["class_counts"][2] == 1
+    assert s["top_1_10"]["n"] == 2 and s["top_1_10"]["class_counts"]["2"] == 1
     assert s["top_1_10"]["disagreements"] == 1 and s["top_1_10"]["positives"] == 1
     assert s["top_11_100"]["errors"] == 1 and s["top_11_100"]["disagreements"] == 1
     assert "positives" not in origin_stats(df, None)["top_1_10"]

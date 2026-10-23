@@ -101,3 +101,40 @@ def store_with_labels(tmp_store, tmp_path):
     s.put_label(LabelRow("sofas", "1", "4", "human", 5))
     s.import_legacy("sofas", {("9", "9"): 5})
     return s
+
+
+def _make_env(tmp_path, tmp_store, sofa_profile, universe, match='{"reasoning": "r", "class": 2}'):
+    from types import SimpleNamespace
+
+    from fakes import FakeEncoder, FakeVLM, prompt_text, route_by_prompt
+    from helpers import tiny_vectors
+    from pseudolabel.iteration import IterationConfig
+    from pseudolabel.labeler import Labeler
+    from pseudolabel.prompts import MATCH_MARKER
+
+    version = tmp_store.register_profile_version(sofa_profile)
+    vlm = FakeVLM(route_by_prompt(match=match))
+    labeler = Labeler(vlm, tmp_store, sofa_profile, version, retry_sleep_s=0)
+
+    def cfg(**kw):
+        return IterationConfig(profile_name="sofas", pairs_path="tiny.csv", mode=kw.pop("mode", "pairs_file"),
+                               labeler_model="fake-vlm", **kw)
+
+    return SimpleNamespace(
+        store=tmp_store, profile=sofa_profile, universe=universe, encoder=FakeEncoder(tiny_vectors(universe)),
+        labeler=labeler, vlm=vlm, tmp=tmp_path / "cache", cfg=cfg,
+        match_calls=lambda: sum(prompt_text(c["content"]).startswith(MATCH_MARKER) for c in vlm.calls))
+
+
+@pytest.fixture
+def env(tmp_path, tmp_store, sofa_profile, tiny_universe):
+    return _make_env(tmp_path, tmp_store, sofa_profile, tiny_universe)
+
+
+@pytest.fixture
+def env_with_one_broken_image(tmp_path, tmp_store, sofa_profile, tiny_universe):
+    from pathlib import Path
+
+    for b in list(tiny_universe.items_b.values())[::2]:
+        Path(b.image).unlink()
+    return _make_env(tmp_path, tmp_store, sofa_profile, tiny_universe)
