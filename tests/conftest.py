@@ -138,3 +138,38 @@ def env_with_one_broken_image(tmp_path, tmp_store, sofa_profile, tiny_universe):
     for b in list(tiny_universe.items_b.values())[::2]:
         Path(b.image).unlink()
     return _make_env(tmp_path, tmp_store, sofa_profile, tiny_universe)
+
+
+def _universe_by_class(counts: dict[int, int], n_q: int = 120):
+    from pseudolabel.data import Universe
+
+    items_a, items_b, pairs, legacy = {}, {}, [], {}
+    i = 0
+    for cls, n in counts.items():
+        for _ in range(n):
+            a, b = f"q{i % n_q}", f"d{i}"
+            items_a.setdefault(a, Item(a, "a", a, "", {}, f"/img/{a}.jpeg"))
+            items_b[b] = Item(b, "b", b, "", {}, f"/img/{b}.jpeg")
+            pairs.append((a, b))
+            legacy[(a, b)] = cls
+            i += 1
+    return Universe(items_a, items_b, pairs, legacy)
+
+
+@pytest.fixture
+def universe_5_classes():
+    return _universe_by_class({c: 50 for c in range(1, 6)})
+
+
+@pytest.fixture
+def universe_5_classes_few_ones():
+    return _universe_by_class({1: 3, 2: 50, 3: 50, 4: 50, 5: 50})
+
+
+@pytest.fixture
+def tmp_settings_env(tmp_path, monkeypatch):
+    from helpers import PROFILES
+
+    monkeypatch.setenv("PL_WORK_DIR", str(tmp_path / "work"))
+    monkeypatch.setenv("PL_PROFILES_DIR", str(PROFILES))
+    return tmp_path
