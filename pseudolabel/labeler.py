@@ -2,13 +2,13 @@
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from pseudolabel.data import Item
 from pseudolabel.images import to_data_url
 from pseudolabel.jsonparse import find_json_object
 from pseudolabel.profiles import Profile
-from pseudolabel.prompts import few_shot_text, match_prompt, text_params_prompt, visual_prompt
+from pseudolabel.prompts import few_shot_text, match_prompt, skeptic_prompt, text_params_prompt, visual_prompt
 from pseudolabel.store import LabelRow, Store
 from pseudolabel.vlm import Completion, VLMClient, class_probs
 
@@ -59,6 +59,8 @@ class PairResult:
     probs: dict[int, float] | None = None
     confidence: float | None = None
     completion_tokens: int = 0
+    skeptic_cls: int | None = None
+    skeptic_raw: str = ""
 
 
 def _image_part(src: str) -> dict:
@@ -86,6 +88,7 @@ class Labeler:
             return self._locks.setdefault(key, threading.Lock())
 
     def _gen(self, step: str) -> dict:
+        step = "match" if step == "skeptic" else step  # the skeptic answers like the match step
         return {**self.profile.generation.get(step, {}), "thinking": self.profile.thinking}
 
     def _json_mode(self) -> bool:
@@ -219,4 +222,31 @@ class Labeler:
         self.store.put_label(LabelRow(name, a.id, b.id, "vlm", result.cls, reasoning=result.reasoning, raw=result.raw,
                                       error=result.error, latency_s=result.latency_s, model=self.vlm.model,
                                       profile_version=self.profile_version, gen_params=self._gen("match")))
+        return result
+
+    def skeptic(self, a: Item, b: Item, first: PairResult, threshold: int) -> PairResult:
+        """Second look at a positive: a strict verifier searches for differences; the class can only go down."""
+        if first.cls is None or first.cls < threshold:
+            return first
+        o = self.options
+        prompt = skeptic_prompt(self.profile, a, b, first.params_a or self._raw_params(a), first.params_b or self._raw_params(b),
+                                first.visual_a, first.visual_b, first.cls, first.reasoning,
+                                use_text=o.use_text, show_visual=o.visual_step)
+        result = replace(first)
+        start = time.time()
+        try:
+            out = self._call_detailed("skeptic", [_image_part(a.image), _image_part(b.image), _text_part(prompt)],
+                                      json_mode=self._json_mode())
+            result.skeptic_raw = out.text
+            result.completion_tokens = first.completion_tokens + (out.completion_tokens or 0)
+            result.skeptic_cls = parse_class(find_json_object(out.text, CLASS_KEYS))
+        except Exception as e:
+            result.error = f"skeptic: {type(e).__name__}: {e}"
+        if result.skeptic_cls is not None:
+            result.cls = min(first.cls, result.skeptic_cls)
+        result.latency_s = first.latency_s + time.time() - start
+        self.store.put_label(LabelRow(self.namespace, a.id, b.id, "vlm", result.cls, reasoning=result.reasoning,
+                                      raw=result.skeptic_raw, error=result.error, latency_s=result.latency_s,
+                                      model=self.vlm.model, profile_version=self.profile_version,
+                                      gen_params={**self._gen("skeptic"), "skeptic": True}))
         return result

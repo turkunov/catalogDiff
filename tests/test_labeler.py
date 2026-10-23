@@ -201,3 +201,43 @@ def test_probs_and_confidence_from_logprobs(labeler_with_fake, sofa_item, sofa_i
     r = lab.label_pair(sofa_item, sofa_item_b)
     assert r.cls == 4 and abs(r.probs[4] - 0.6) < 1e-9 and abs(r.confidence - 0.6) < 1e-9
     assert vlm.calls[-1]["top_logprobs"] == 5 and r.completion_tokens == 11
+
+
+def _skeptic_lab(labeler_with_fake, answer: str):
+    from pseudolabel.prompts import SKEPTIC_MARKER
+
+    def handler(content, gen, json_mode):
+        last = [p["text"] for p in content if p["type"] == "text"][-1]
+        if last.startswith(SKEPTIC_MARKER):
+            return answer
+        raise AssertionError("only the skeptic is called")
+
+    return labeler_with_fake(handler)
+
+
+def test_skeptic_lowers_class(labeler_with_fake, sofa_item, sofa_item_b):
+    from pseudolabel.labeler import PairResult
+
+    lab, vlm = _skeptic_lab(labeler_with_fake, '{"differences": "другие подлокотники", "class": 3}')
+    first = PairResult(5, "та же модель роденго", "{}", None, 1.0)
+    r = lab.skeptic(sofa_item, sofa_item_b, first, threshold=4)
+    assert r.cls == 3 and r.skeptic_cls == 3 and first.cls == 5
+    call = vlm.calls[0]
+    assert sum(p["type"] == "image_url" for p in call["content"]) == 2
+    assert "та же модель роденго" in call["content"][-1]["text"] and call["gen"]["temperature"] == 0.1
+
+
+def test_skeptic_never_raises_class(labeler_with_fake, sofa_item, sofa_item_b):
+    from pseudolabel.labeler import PairResult
+
+    lab, _ = _skeptic_lab(labeler_with_fake, '{"differences": "", "class": 5}')
+    r = lab.skeptic(sofa_item, sofa_item_b, PairResult(4, "похожи", "{}", None, 1.0), threshold=4)
+    assert r.cls == 4 and r.skeptic_cls == 5
+
+
+def test_skeptic_skips_below_threshold(labeler_with_fake, sofa_item, sofa_item_b):
+    from pseudolabel.labeler import PairResult
+
+    lab, vlm = _skeptic_lab(labeler_with_fake, '{"class": 1}')
+    first = PairResult(3, "разные", "{}", None, 1.0)
+    assert lab.skeptic(sofa_item, sofa_item_b, first, threshold=4) is first and vlm.calls == []

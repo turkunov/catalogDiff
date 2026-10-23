@@ -11,11 +11,13 @@ from pseudolabel.profiles import Attribute, Profile, ProfileError
 VISUAL_MARKER = "[step: visual attributes]"
 TEXT_MARKER = "[step: parameters from text]"
 MATCH_MARKER = "[step: match]"
+SKEPTIC_MARKER = "[step: skeptic]"
 
 FIELDS = (
     "category", "visual_attributes", "key_params", "class_definitions", "rules", "language", "missing_keys",
     "title", "description", "a_title", "a_description", "b_title", "b_description",
     "a_params", "b_params", "a_visual", "b_visual", "images_note", "listings",
+    "first_class", "first_reasoning",
 )
 
 MAX_DESCRIPTION_CHARS = 1500
@@ -141,6 +143,37 @@ def match_prompt(p: Profile, a: Item, b: Item, params_a: dict, params_b: dict, v
         + _listing(2, b, params_b, visual_b, use_text, show_visual),
     )
     return _render(p, "match", MATCH_TEMPLATE, fields)
+
+
+SKEPTIC_TEMPLATE = SKEPTIC_MARKER + """
+Another reviewer decided that these two listings in the category "{category}" show the same or a very similar
+product (class {first_class}). Their reasoning: {first_reasoning}
+Be a strict verifier. The first image belongs to listing 1, the second image to listing 2. Look closely at both
+photos and the texts for differences that point to a different model or modification: silhouette, armrests, back,
+legs, cushions, stitching, decor, colour, upholstery, size, mechanism.
+
+Classes:
+{class_definitions}
+
+Rules:
+{rules}
+
+{listings}
+
+If you find such differences, choose the class they lead to; if you find none, keep class {first_class}.
+Return only a JSON object, with no text before or after it:
+{{"differences": "<short list in {language}, or empty>", "class": <integer 1-5>}}"""
+
+
+def skeptic_prompt(p: Profile, a: Item, b: Item, params_a: dict, params_b: dict, visual_a: dict, visual_b: dict,
+                   first_class: int, first_reasoning: str, use_text: bool = True, show_visual: bool = True) -> str:
+    fields = _base_fields(p)
+    fields.update(
+        first_class=str(first_class), first_reasoning=first_reasoning or "—",
+        listings=_listing(1, a, params_a, visual_a, use_text, show_visual) + "\n\n"
+        + _listing(2, b, params_b, visual_b, use_text, show_visual),
+    )
+    return _render(p, "skeptic", SKEPTIC_TEMPLATE, fields)
 
 
 def few_shot_text(n: int, a: Item, b: Item, cls: int, use_text: bool = True) -> str:
