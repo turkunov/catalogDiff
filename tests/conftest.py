@@ -80,3 +80,24 @@ def tiny_embeddings(tiny_universe):
     from helpers import embeddings_for, tiny_vectors
 
     return embeddings_for(tiny_universe, tiny_vectors(tiny_universe))
+
+
+@pytest.fixture
+def store_with_labels(tmp_store, tmp_path):
+    from pseudolabel.store import LabelRow
+
+    s = tmp_store
+    s.upsert_items("sofas", [Item(i, side, f"t{i}", "", {}, f"/img/{side}{i}.jpeg")
+                             for side, ids in (("a", ["1", "9"]), ("b", ["2", "3", "4", "5", "9"])) for i in ids])
+    it = s.create_iteration("sofas", 1, {"labeler_model": "m"}, "fake@1")
+    s.add_iteration_pairs(it, [
+        dict(a_id="1", b_id="2", origin="top_1_10", rank=1, cosine=0.9, selected_for_vlm=True),
+        dict(a_id="1", b_id="3", origin="top_11_100", rank=20, cosine=0.6, selected_for_vlm=True),
+        dict(a_id="1", b_id="4", origin="top_1_10", rank=2, cosine=0.8, selected_for_vlm=True),
+        dict(a_id="1", b_id="5", origin="easy_negative", rank=900, cosine=0.1, selected_for_vlm=False),
+    ])
+    for b, cls in (("2", 4), ("3", 3), ("4", 2)):
+        s.put_label(LabelRow("sofas", "1", b, "vlm", cls, model="m", profile_version=1))
+    s.put_label(LabelRow("sofas", "1", "4", "human", 5))
+    s.import_legacy("sofas", {("9", "9"): 5})
+    return s
