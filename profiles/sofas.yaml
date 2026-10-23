@@ -67,16 +67,22 @@ prompt_overrides:
   visual: null
   text_params: null
   match: null
+# Sampling recommended by Qwen for thinking mode: near-greedy decoding makes reasoning loop until the token limit.
 generation:
   visual:
-    temperature: 0
+    temperature: 0.6
+    top_p: 0.95
+    top_k: 20
     max_tokens: 4096
   text_params:
-    temperature: 0
+    temperature: 0.6
+    top_p: 0.95
+    top_k: 20
     max_tokens: 4096
   match:
-    temperature: 0.1
-    top_p: 0.3
+    temperature: 0.6
+    top_p: 0.95
+    top_k: 20
     max_tokens: 4096
 thinking: true
 examples:

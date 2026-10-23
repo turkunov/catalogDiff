@@ -106,7 +106,7 @@ def test_store_waits_for_a_locked_database(tmp_path):
 
     path = tmp_path / "labels.sqlite"
     Store(path)
-    holder = sqlite3.connect(path)
+    holder = sqlite3.connect(path, check_same_thread=False)  # committed from a timer thread
     holder.execute("BEGIN IMMEDIATE")
     threading.Timer(0.6, holder.commit).start()
     with pytest.raises(sqlite3.OperationalError):

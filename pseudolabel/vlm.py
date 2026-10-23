@@ -73,7 +73,8 @@ class OpenAIVLM:
         kwargs = {
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
-            "extra_body": {"chat_template_kwargs": {"enable_thinking": bool(gen.get("thinking", True))}},
+            "extra_body": {"chat_template_kwargs": {"enable_thinking": bool(gen.get("thinking", True))},
+                           **({"top_k": gen["top_k"]} if "top_k" in gen else {})},
             **{k: gen[k] for k in GEN_KEYS if k in gen},
         }
         if top_logprobs:

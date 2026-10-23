@@ -34,7 +34,7 @@ def test_label_pair_stores_vlm_label(labeler_with_fake, sofa_item, sofa_item_b, 
     assert tmp_store.get_vlm_label("sofas", sofa_item.id, sofa_item_b.id, "fake-vlm", 1).cls == 4
     match_call = vlm.calls[-1]
     assert sum(p["type"] == "image_url" for p in match_call["content"]) == 2 and match_call["json_mode"] is False
-    assert match_call["gen"]["thinking"] is True and match_call["gen"]["temperature"] == 0.1
+    assert match_call["gen"]["thinking"] is True and match_call["gen"]["temperature"] == 0.6
 
 
 def test_label_pair_cached(labeler_with_fake, sofa_item, sofa_item_b):
@@ -224,7 +224,7 @@ def test_skeptic_lowers_class(labeler_with_fake, sofa_item, sofa_item_b):
     assert r.cls == 3 and r.skeptic_cls == 3 and first.cls == 5
     call = vlm.calls[0]
     assert sum(p["type"] == "image_url" for p in call["content"]) == 2
-    assert "та же модель роденго" in call["content"][-1]["text"] and call["gen"]["temperature"] == 0.1
+    assert "та же модель роденго" in call["content"][-1]["text"] and call["gen"]["temperature"] == 0.6
 
 
 def test_skeptic_never_raises_class(labeler_with_fake, sofa_item, sofa_item_b):

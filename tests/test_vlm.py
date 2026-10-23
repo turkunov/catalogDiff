@@ -63,3 +63,10 @@ def test_complete_detailed_falls_back_without_logprobs():
     out = vlm.complete_detailed([{"type": "text", "text": "hi"}], {}, json_mode=False, top_logprobs=5)
     assert out.text == "plain" and out.logprobs is None
     assert "logprobs" not in client.calls[-1]
+
+
+def test_top_k_goes_to_extra_body(fake_openai_client):
+    vlm = OpenAIVLM("http://x/v1", "m", client=fake_openai_client)
+    vlm.complete([{"type": "text", "text": "hi"}], {"temperature": 0.6, "top_p": 0.95, "top_k": 20}, json_mode=False)
+    call = fake_openai_client.calls[-1]
+    assert call["extra_body"]["top_k"] == 20 and "top_k" not in call and call["top_p"] == 0.95
