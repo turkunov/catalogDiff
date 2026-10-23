@@ -312,3 +312,13 @@ def test_item_steps_of_both_listings_run_in_parallel(labeler_with_fake, sofa_ite
     lab, _ = labeler_with_fake(handler)
     assert lab.label_pair(sofa_item, sofa_item_b).cls == 4
     assert state["max"] >= 2
+
+
+def test_no_cache_option_asks_every_step_again(labeler_with_fake, sofa_item, sofa_item_b):
+    from pseudolabel.labeler import LabelerOptions
+    from pseudolabel.prompts import VISUAL_MARKER
+
+    lab, vlm = labeler_with_fake(route_by_prompt(match='{"reasoning": "ok", "class": 4}'), options=LabelerOptions(cache=False))
+    lab.label_pair(sofa_item, sofa_item_b)
+    lab.label_pair(sofa_item, sofa_item_b)
+    assert len(_by_marker(vlm, VISUAL_MARKER)) == 4 and len(_by_marker(vlm, "[step: match]")) == 2

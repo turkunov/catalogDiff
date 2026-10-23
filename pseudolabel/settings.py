@@ -17,6 +17,9 @@ class Settings:
     profiles_dir: Path
     encoder_device: str
     vlm_concurrency: int
+    demo_pairs_path: Path = Path("/data/eval160/pairs160.csv")  # eval pairs offered in the Pair labeling demo
+    demo_labels_path: Path = Path("/data/eval160/labels160.csv")  # their reference classes
+    demo_profile: str = "sofas"
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -31,4 +34,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         profiles_dir=Path(env.get("PL_PROFILES_DIR", str(REPO_ROOT / "profiles"))),
         encoder_device=env.get("PL_ENCODER_DEVICE", "cuda"),
         vlm_concurrency=int(env.get("PL_VLM_CONCURRENCY", "4")),
+        demo_pairs_path=Path(env.get("PL_DEMO_PAIRS", "/data/eval160/pairs160.csv")),
+        demo_labels_path=Path(env.get("PL_DEMO_LABELS", "/data/eval160/labels160.csv")),
+        demo_profile=env.get("PL_DEMO_PROFILE", "sofas"),
     )

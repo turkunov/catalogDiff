@@ -48,6 +48,7 @@ class LabelerOptions:
     namespace: str | None = None  # name annotations and labels are stored under; default the profile name
     photo_dup_max_distance: int | None = None  # same-photo shortcut: hash distance up to this is class 5, no VLM
     photo_dup_check_share: float = 0.05  # share of shortcut pairs still sent to the VLM to measure the shortcut
+    cache: bool = True  # False: every step is asked again (results are still stored)
 
 
 @dataclass
@@ -133,6 +134,8 @@ class Labeler:
             self.on_call(step, status, latency_s)
 
     def _cached(self, item: Item, kind: str) -> dict | None:
+        if not self.options.cache:
+            return None
         return self.store.get_annotation(self.namespace, item.side, item.id, kind, self.vlm.model, self.profile_version)
 
     def _save(self, item: Item, kind: str, result: dict, raw: str, error: str | None, latency_s: float) -> None:
@@ -200,7 +203,7 @@ class Labeler:
 
     def label_pair(self, a: Item, b: Item, use_cache: bool = True) -> PairResult:
         name, o = self.namespace, self.options
-        if use_cache:
+        if use_cache and o.cache:
             cached = self.store.get_vlm_label(name, a.id, b.id, self.vlm.model, self.profile_version)
             if cached is not None:
                 return PairResult(cached.cls, cached.reasoning, cached.raw, None, cached.latency_s or 0.0,

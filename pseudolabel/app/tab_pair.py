@@ -1,6 +1,7 @@
 """Pair labeling tab: run the three-step labeler on a profile example or on two custom listings."""
 import hashlib
 import json
+import random
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -8,7 +9,8 @@ import gradio as gr
 
 from pseudolabel.app.context import AppContext
 from pseudolabel.data import Item, item_from_example
-from pseudolabel.labeler import PairResult
+from pseudolabel.images import ImageError, load_image
+from pseudolabel.labeler import LabelerOptions, PairResult
 from pseudolabel.metrics import THRESHOLD_MISSING, require_threshold
 from pseudolabel.segment import cut_out
 
@@ -32,6 +34,16 @@ class PairView:
     image_b: str = ""
     confidence: float | None = None  # probability of the chosen class
     cached: bool = False
+    reference: int | None = None  # reference class of an eval pair
+
+
+@dataclass
+class EvalPair:
+    number: int
+    a: Item
+    b: Item
+    reference: int
+    preview: str  # both photos side by side
 
 
 def _view(r: PairResult, threshold: int | None, a: Item, b: Item) -> PairView:
@@ -86,6 +98,60 @@ def label_custom(ctx: AppContext, profile_name: str, a: dict, b: dict, threshold
     return _label(ctx, profile_name, {**a, "id": _custom_id(a)}, {**b, "id": _custom_id(b)}, threshold, segmentation)
 
 
+def _preview(a_src: str, b_src: str, dst: Path, height: int = 180, gap: int = 6) -> str:
+    """Both photos of a pair side by side, written once."""
+    from PIL import Image
+
+    if not dst.exists():
+        tiles = []
+        for src in (a_src, b_src):
+            try:
+                img = load_image(src)
+                img = img.resize((max(1, round(img.width * height / img.height)), height))
+            except ImageError:
+                img = Image.new("RGB", (height, height), (42, 42, 50))
+            tiles.append(img)
+        canvas = Image.new("RGB", (tiles[0].width + gap + tiles[1].width, height), (33, 33, 39))
+        canvas.paste(tiles[0], (0, 0))
+        canvas.paste(tiles[1], (tiles[0].width + gap, 0))
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        canvas.save(dst, "JPEG", quality=88)
+    return str(dst)
+
+
+def demo_eval_pairs(ctx: AppContext, per_class: int = 3, seed: int = 0) -> list[EvalPair]:
+    """A fixed sample of the eval set, per_class pairs of each reference class, ordered by class."""
+    from pseudolabel.experiments import load_eval
+
+    s = ctx.settings
+    if not (Path(s.demo_pairs_path).is_file() and Path(s.demo_labels_path).is_file()):
+        return []
+    universe, human = load_eval(Path(s.demo_pairs_path), Path(s.demo_labels_path), ctx.profile(s.demo_profile))
+    known, rng, chosen = set(universe.pairs), random.Random(seed), []
+    for cls in range(1, 6):
+        pairs = sorted(p for p, c in human.items() if c == cls and p in known)
+        rng.shuffle(pairs)
+        chosen += [(p, cls) for p in pairs[:per_class]]
+    out = s.work_dir / "demo_previews"
+    return [EvalPair(n, universe.items_a[a], universe.items_b[b], cls,
+                     _preview(universe.items_a[a].image, universe.items_b[b].image, out / f"{a}_{b}.jpeg"))
+            for n, ((a, b), cls) in enumerate(chosen, start=1)]
+
+
+def label_eval_pair(ctx: AppContext, pair: EvalPair, threshold: int | None, segmentation: str = "none") -> PairView:
+    """The whole pipeline on an eval pair, every step asked again (no cached answers)."""
+    if threshold is not None:
+        require_threshold(threshold)
+    profile = ctx.profile(ctx.settings.demo_profile)
+    version = ctx.store.register_profile_version(profile)
+    a, b = pair.a, pair.b
+    if segmentation and segmentation != "none":
+        seg = ctx.segmenter_factory(segmentation, profile.object_prompt or profile.category_label)
+        a, b = _segmented(ctx, a, segmentation, seg), _segmented(ctx, b, segmentation, seg)
+    labeler = ctx.labeler(profile, version, options=LabelerOptions(cache=False))
+    return replace(_view(labeler.label_pair(a, b, use_cache=False), threshold, a, b), reference=pair.reference)
+
+
 def _threshold(value) -> int | None:
     """An empty field may arrive as 0 from Gradio; classes start at 1, so 0 means "not set"."""
     return None if value in (None, "", 0) else int(value)
@@ -95,7 +161,8 @@ def _outputs(v: PairView):
     cls = "—" if v.cls is None else str(v.cls)
     conf = "" if v.confidence is None else f" · confidence {v.confidence:.2f}"
     took = f"from cache (labeled in {v.latency_s}s)" if v.cached else f"{v.latency_s}s"
-    summary = f"### Class: {cls} · {v.binary}{conf} · {took}" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
+    ref = "" if v.reference is None else f" · reference {v.reference}"
+    summary = f"### Class: {cls}{ref} · {v.binary}{conf} · {took}" + (f"\n\n**Error:** `{v.error}`" if v.error else "")
     if v.confidence is not None and v.confidence < LOW_CONFIDENCE:
         summary += ("\n\n⚠️ **Low confidence** — no single class is clearly preferred "
                     f"(below {LOW_CONFIDENCE}); this pair should be checked by hand.")
@@ -113,6 +180,13 @@ def build(ctx: AppContext) -> None:
     with gr.Row():
         example = gr.Dropdown(initial, value=initial[0] if initial else None, label="Example")
         run_example = gr.Button("Label example", variant="primary")
+    eval_pairs = demo_eval_pairs(ctx)
+    picked = gr.State(None)
+    if eval_pairs:
+        with gr.Accordion("Eval pairs", open=True):
+            gallery = gr.Gallery([(p.preview, f"#{p.number} · class {p.reference}") for p in eval_pairs],
+                                 columns=5, height="auto", allow_preview=False, show_label=False, object_fit="contain")
+            run_eval = gr.Button("Label selected pair", variant="primary")
     with gr.Accordion("Custom pair", open=False):
         with gr.Row():
             with gr.Column():
@@ -156,6 +230,20 @@ def build(ctx: AppContext) -> None:
         except Exception as e:
             return failed(e)
 
+    def on_pick(evt: gr.SelectData):
+        return evt.index
+
+    def on_eval(i, t, seg):
+        if i is None:
+            return failed("select a pair in the list first")
+        try:
+            return _outputs(label_eval_pair(ctx, eval_pairs[i], _threshold(t), seg))
+        except Exception as e:
+            return failed(e)
+
+    if eval_pairs:
+        gallery.select(on_pick, None, picked)
+        run_eval.click(on_eval, [picked, threshold, segmentation], outputs)
     profile.change(examples_for, profile, example)
     run_example.click(on_example, [profile, example, threshold, segmentation], outputs)
     run_custom.click(on_custom, [profile, threshold, segmentation, a_img, a_title, a_desc, a_params, b_img, b_title, b_desc,
