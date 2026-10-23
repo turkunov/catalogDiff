@@ -6,14 +6,22 @@ from pseudolabel.prompts import MATCH_MARKER, TEXT_MARKER, VISUAL_MARKER
 
 
 class FakeVLM:
-    def __init__(self, handler: Callable[[list[dict], dict, bool], str], model: str = "fake-vlm"):
+    """The handler returns the answer text, or a Completion to also return logprobs and token counts."""
+
+    def __init__(self, handler: Callable[[list[dict], dict, bool], object], model: str = "fake-vlm"):
         self.handler = handler
         self.model = model
         self.calls: list[dict] = []
 
     def complete(self, content: list[dict], gen: dict, json_mode: bool) -> str:
-        self.calls.append({"content": content, "gen": gen, "json_mode": json_mode})
-        return self.handler(content, gen, json_mode)
+        return self.complete_detailed(content, gen, json_mode).text
+
+    def complete_detailed(self, content: list[dict], gen: dict, json_mode: bool, top_logprobs: int = 0):
+        from pseudolabel.vlm import Completion
+
+        self.calls.append({"content": content, "gen": gen, "json_mode": json_mode, "top_logprobs": top_logprobs})
+        out = self.handler(content, gen, json_mode)
+        return out if isinstance(out, Completion) else Completion(out, None, None)
 
 
 def prompt_text(content: list[dict]) -> str:
@@ -35,18 +43,34 @@ def route_by_prompt(visual: str = '{"attributes": {"color": "серый"}}', tex
     return handler
 
 
-class FakeOpenAIClient:
-    """Mimics client.chat.completions.create; rejects response_format on the first call."""
+def token_logprobs(tokens: list[str], top: dict[int, list[tuple[str, float]]] | None = None) -> list:
+    """Logprob entries shaped like the OpenAI client's; `top` maps a token index to its alternatives."""
+    top = top or {}
+    return [SimpleNamespace(token=t, logprob=0.0,
+                            top_logprobs=[SimpleNamespace(token=a, logprob=lp) for a, lp in top.get(i, [(t, 0.0)])])
+            for i, t in enumerate(tokens)]
 
-    def __init__(self):
+
+class FakeOpenAIClient:
+    """Mimics client.chat.completions.create; rejects response_format on the first call.
+
+    With `logprobs` set, answers carry them; with `reject_logprobs`, requests asking for logprobs fail.
+    """
+
+    def __init__(self, content: str = "ok", logprobs: list | None = None, reject_logprobs: bool = False):
         self.calls: list[dict] = []
+        self.content, self.logprobs, self.reject_logprobs = content, logprobs, reject_logprobs
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
         if "response_format" in kwargs and len(self.calls) == 1:
             raise RuntimeError("response_format not supported")
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+        if kwargs.get("logprobs") and self.reject_logprobs:
+            raise RuntimeError("logprobs not supported")
+        lp = SimpleNamespace(content=self.logprobs) if kwargs.get("logprobs") and self.logprobs is not None else None
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self.content), logprobs=lp)],
+                               usage=SimpleNamespace(completion_tokens=7))
 
 
 class FakeEncoder:
