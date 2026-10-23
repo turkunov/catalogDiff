@@ -4,7 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-import pandas as pd
 import yaml
 
 from pseudolabel.data import load_universe
@@ -83,7 +82,11 @@ def _ablate(args, settings) -> int:
 
         rows = photo_dup_rows(universe, human, list(range(0, 17, 2)), read_rows(out_dir / "base.jsonl"))
         (out_dir / "photo_dup.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
-        print(pd.DataFrame(rows).to_markdown(index=False, floatfmt=".2f"))
+        cols = list(rows[0])
+        fmt = lambda v: "—" if v is None else (f"{v:.2f}" if isinstance(v, float) else str(v))  # noqa: E731
+        print("| " + " | ".join(cols) + " |\n|" + "---|" * len(cols))
+        for r in rows:
+            print("| " + " | ".join(fmt(r[c]) for c in cols) + " |")
         return 0
     if args.cmd == "segment":
         from pseudolabel import segment
